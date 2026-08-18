@@ -26,6 +26,7 @@ import { decompileFunction } from '../visual/core/decompiler/GraphDecompiler'
 import LiveEditor from './editors/LiveEditor'
 import type { BeforeMount, OnMount } from '@monaco-editor/react'
 import type { Diagnostic } from '../visual/core/minecraft/types'
+import { Icon } from "./Icon";
 
 interface VisualEditorProps {
   activePath: string
@@ -263,7 +264,7 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
       edges: edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined } as GraphEdge)),
     }
     const res = validateGraph(graph, activePath)
-    setValidationStatus(res.valid ? `✓ Graph valid (${graph.nodes.length} nodes)` : `✗ ${res.diagnostics.length} issue(s)`)
+    setValidationStatus(res.valid ? `Graph valid (${graph.nodes.length} nodes)` : `${res.diagnostics.length} issue(s)`)
     return res.diagnostics
   }, [nodes, edges, activePath])
 
@@ -312,8 +313,8 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
             title="Dismiss"
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: '#3a1d1d', color: '#ffb4b4', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}
           >
-            <span>⚠ {connError}</span>
-            <span style={{ opacity: 0.7 }}>✕</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Icon name="warning" size={14} />{connError}</span>
+            <Icon name="x" size={14} />
           </div>
         )}
         <div className="visual-editor-bar">
@@ -321,7 +322,7 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
             <button type="button" className={mode === 'code' ? 'active' : ''} onClick={() => setMode('code')}>Code</button>
             <button type="button" className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Visual</button>
           </div>
-          <button type="button" className="visual-compile" onClick={doCompile}>Compile ▶</button>
+          <button type="button" className="visual-compile" onClick={doCompile}>Compile <Icon name="play" size={14} /></button>
           <button
             type="button"
             className="visual-validate"

@@ -14,6 +14,7 @@ import {
   type SimplifiedMcdocType,
 } from '../../ide/mcdoc-edit'
 import { buildFormState, commitEdit } from './mcdoc-editor-logic'
+import { Icon } from "../Icon";
 
 const COMMIT_DEBOUNCE_MS = 300
 
@@ -710,7 +711,7 @@ function ListView({
               disabled={i === 0}
               onClick={() => ctx.moveValue(path, i, i - 1)}
             >
-              ↑
+              <Icon name="arrow-up" size={14} />
             </button>
             <button
               type="button"
@@ -719,7 +720,7 @@ function ListView({
               disabled={i === arr.length - 1}
               onClick={() => ctx.moveValue(path, i, i + 1)}
             >
-              ↓
+              <Icon name="arrow-down" size={14} />
             </button>
             <button
               type="button"
