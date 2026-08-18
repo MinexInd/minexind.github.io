@@ -10,6 +10,7 @@ import LootTableEditor from './specialized/LootTableEditor'
 import PredicateEditor from './specialized/PredicateEditor'
 import TagEditor from './specialized/TagEditor'
 import McmetaEditor from './McmetaEditor'
+import McdocEditor from './McdocEditor'
 
 export type SplitKind = 'recipe' | 'advancement' | 'loot_table' | 'predicate' | 'tag' | 'mcmeta'
 export type ViewMode = 'split' | 'source' | 'gui'
@@ -24,6 +25,8 @@ interface SplitEditorProps {
   spyglassReady: boolean
   /** Shared Spyglass service ref used to resolve the mcdoc root type. */
   serviceRef: React.MutableRefObject<SpyglassService | null>
+  /** Async lookup of valid ids for a vanilla registry (item, block, …), version-aware. */
+  registryProvider?: (registry: string) => Promise<string[]>
   /** Concrete Minecraft version used for since/until field gating in the form. */
   version: string
   /** Width of the JSON (left) pane as a percentage; lifted to the parent so it
@@ -80,6 +83,7 @@ export default function SplitEditor({
   mode,
   spyglassReady,
   serviceRef,
+  registryProvider,
   version,
   leftPct,
   onLeftPctChange,
@@ -89,6 +93,19 @@ export default function SplitEditor({
 }: SplitEditorProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   const [jsonText, setJsonText] = useState(initialContent)
+  // Resolve the mcdoc root type for this file so we can render the
+  // schema-driven McdocEditor (misode-style generator) whenever the language
+  // service has loaded the matching version's vanilla data.
+  const { type: schemaType, state: schemaState } = useResolvedMcdocType({
+    path: activePath,
+    formView: true,
+    spyglassReady,
+    serviceRef,
+    content: jsonText,
+  })
+  const useSchemaForm =
+    spyglassReady &&
+    (schemaState === 'ready' ? schemaType !== null : true)
   const [formDoc, setFormDoc] = useState<JsonValue>(() => safeParse(initialContent))
   const [parseError, setParseError] = useState<string | null>(null)
   // Width of the left (JSON) pane comes from the parent (leftPct) so the split
@@ -134,7 +151,7 @@ export default function SplitEditor({
   // keeps using the hand-written fallback editors (pre-Spyglass behaviour).
   useResolvedMcdocType({
     path: activePath,
-    formView: viewMode !== 'source',
+    formView: true,
     spyglassReady,
     serviceRef,
     content: jsonText,
@@ -220,21 +237,33 @@ export default function SplitEditor({
         />
       )
     }
-    // Hand-written editors for every specialized file kind. The mcdoc-driven
-    // McdocEditor is intentionally disabled: after Spyglass loads it does not
-    // render reliably, whereas these fallback editors behave exactly as they
-    // did before Spyglass loaded.
+    // Schema-driven generator (misode-style): render the full mcdoc form with
+    // searchable registry dropdowns and field descriptions whenever the resolved
+    // root type is available. Falls back to the hand-written editors when the
+    // language service hasn't loaded (e.g. offline) so the form still works.
+    if (useSchemaForm && schemaType) {
+      return (
+        <McdocEditor
+          content={jsonText}
+          type={schemaType}
+          version={version}
+          onChange={handleFormStringChange}
+          onShowJson={() => setViewMode('source')}
+          registryProvider={registryProvider}
+        />
+      )
+    }
     switch (kind) {
       case 'recipe':
-        return <RecipeEditor type={null} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
+        return <RecipeEditor type={schemaType} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
       case 'advancement':
-        return <AdvancementEditor type={null} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
+        return <AdvancementEditor type={schemaType} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
       case 'loot_table':
-        return <LootTableEditor type={null} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
+        return <LootTableEditor type={schemaType} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
       case 'predicate':
-        return <PredicateEditor type={null} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
+        return <PredicateEditor type={schemaType} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
       case 'tag':
-        return <TagEditor type={null} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
+        return <TagEditor type={schemaType} value={formDoc} path={[]} onChange={handleFormChange} onRemove={() => {}} />
     }
     return <div className="mcdoc-loading">No schema available for this file.</div>
   }

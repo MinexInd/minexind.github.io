@@ -2868,3 +2868,119 @@
 }
 .react-flow__controls-button:hover { background: var(--well); }
 .react-flow__controls-button svg { fill: var(--ink); max-width: 14px; max-height: 14px; }
+
+/* ---------- 3.1b Registry search dropdown (misode-style id picker) ---------- */
+.mcdoc-registry {
+  position: relative;
+  width: 100%;
+}
+.mcdoc-registry-input {
+  width: 100%;
+  font-family: var(--font-mono);
+}
+.mcdoc-registry-list {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--docket);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  box-shadow: var(--lift);
+}
+.mcdoc-registry-option {
+  padding: 4px 8px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcdoc-registry-option:hover,
+.mcdoc-registry-option.is-selected {
+  background: var(--stamp-wash);
+  color: var(--stamp);
+}
+.mcdoc-registry-option-clear {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+.mcdoc-registry-empty {
+  padding: 4px 8px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+}
+.mcdoc-field-help {
+  margin: 2px 0 6px;
+  font-family: var(--font-sans);
+  font-size: var(--t-body-sm);
+  line-height: var(--lh-body);
+  color: var(--ink-faint);
+}
+
+/* ---------- 3.1c Searchable recipe preset combobox ---------- */
+.ide-recipe-search {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 180px;
+}
+.ide-recipe-input {
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--docket);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+}
+.ide-recipe-input:focus {
+  outline: none;
+  border-color: var(--stamp);
+  box-shadow: 0 0 0 2px var(--stamp-wash);
+}
+.ide-recipe-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ide-recipe-results {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--docket);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  box-shadow: var(--lift);
+}
+.ide-recipe-option {
+  padding: 4px 8px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide-recipe-option:hover {
+  background: var(--stamp-wash);
+  color: var(--stamp);
+}

@@ -597,6 +597,15 @@ export default function IdePage({
   const [presetIds, setPresetIds] = useState<string[]>([])
   const [presetLoading, setPresetLoading] = useState(false)
   const [presetSelected, setPresetSelected] = useState('')
+  const [presetQuery, setPresetQuery] = useState('')
+  const [presetOpen, setPresetOpen] = useState(false)
+  const filteredPresets = useMemo(
+    () =>
+      presetQuery.trim() === ''
+        ? presetIds
+        : presetIds.filter(id => id.toLowerCase().includes(presetQuery.toLowerCase())),
+    [presetIds, presetQuery],
+  )
 
   // 2b.4 — Drag-and-drop merge state
   const [isDragging, setIsDragging] = useState(false)
@@ -1055,6 +1064,17 @@ export default function IdePage({
   const formatFormActive =
     isGenericFormat && formatView === 'form' &&
     (formatTypeState === 'resolving' || formatType !== null)
+
+  // Version-aware registry id lookup for the schema-driven form editors
+  // (item/block/entity/sound/…). Driven by the Spyglass service, which loads
+  // the vanilla data for whichever Minecraft version the user selected.
+  const registryProvider = useCallback(
+    (registry: string) =>
+      serviceRef.current
+        ? serviceRef.current.getRegistryEntries(registry, activePath ?? undefined)
+        : Promise.resolve([]),
+    [serviceRef, activePath],
+  )
 
   const openFile = useCallback((path: string) => {
     setOpenTabs(prev => (prev.includes(path) ? prev : [...prev, path]))
@@ -2527,24 +2547,42 @@ const handleContextMenuAction = useCallback((action: string) => {
                     {kind === 'recipe' && (
                       <div className="ide-recipe-bar">
                         <span className="ide-recipe-bar-label">Load preset</span>
-                        <select
-                          className="ide-recipe-select"
-                          value={presetSelected}
-                          disabled={presetLoading || presetIds.length === 0}
-                          onChange={e => handleLoadRecipePreset(e.target.value)}
-                          aria-label="Load a vanilla recipe preset"
-                        >
-                          <option value="">
-                            {presetLoading
-                              ? 'Loading presets…'
-                              : presetIds.length === 0
-                                ? 'No presets available'
-                                : 'Choose a vanilla recipe…'}
-                          </option>
-                          {presetIds.map(id => (
-                            <option key={id} value={id}>{id}</option>
-                          ))}
-                        </select>
+                        <div className="ide-recipe-search">
+                          <input
+                            className="ide-recipe-input"
+                            type="text"
+                            placeholder={
+                              presetLoading
+                                ? 'Loading presets…'
+                                : presetIds.length === 0
+                                  ? 'No presets available'
+                                  : 'Search vanilla recipes…'
+                            }
+                            value={presetQuery}
+                            disabled={presetLoading || presetIds.length === 0}
+                            onChange={e => { setPresetQuery(e.target.value); setPresetOpen(true) }}
+                            onFocus={() => setPresetOpen(true)}
+                            onBlur={() => window.setTimeout(() => setPresetOpen(false), 120)}
+                            aria-label="Search and load a vanilla recipe preset"
+                          />
+                          {presetOpen && filteredPresets.length > 0 && (
+                            <ul className="ide-recipe-results" role="listbox">
+                              {filteredPresets.slice(0, 150).map(id => (
+                                <li
+                                  key={id}
+                                  className="ide-recipe-option"
+                                  onMouseDown={() => {
+                                    handleLoadRecipePreset(id)
+                                    setPresetQuery('')
+                                    setPresetOpen(false)
+                                  }}
+                                >
+                                  {id}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
                       </div>
                     )}
                     <SplitEditor
@@ -2556,6 +2594,7 @@ const handleContextMenuAction = useCallback((action: string) => {
                       mode={mode}
                       spyglassReady={spyglassReady}
                       serviceRef={serviceRef}
+                      registryProvider={registryProvider}
                       version={recipePresetVersion}
                       leftPct={splitLeftPct}
                       onLeftPctChange={setSplitLeftPct}

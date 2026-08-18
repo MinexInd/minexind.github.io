@@ -17,17 +17,19 @@ export interface SimplifiedMcdocField {
   required: boolean
   since?: string
   until?: string
+  /** Human description pulled from the mcdoc `#[doc]` attribute, shown as help text. */
+  description?: string
 }
 
 export type SimplifiedMcdocType =
-  | { kind: 'struct'; fields: SimplifiedMcdocField[]; since?: string; until?: string }
-  | { kind: 'union'; options: SimplifiedMcdocType[]; since?: string; until?: string }
-  | { kind: 'list'; item: SimplifiedMcdocType; since?: string; until?: string }
-  | { kind: 'tuple'; items: SimplifiedMcdocType[]; since?: string; until?: string }
-  | { kind: 'enum'; values: string[]; since?: string; until?: string }
-  | { kind: 'literal'; value: string | number | boolean; since?: string; until?: string }
-  | { kind: 'map'; value: SimplifiedMcdocType; key?: SimplifiedMcdocType; since?: string; until?: string }
-  | { kind: 'primitive'; name: string; since?: string; until?: string; registry?: string }
+  | { kind: 'struct'; fields: SimplifiedMcdocField[]; since?: string; until?: string; description?: string }
+  | { kind: 'union'; options: SimplifiedMcdocType[]; since?: string; until?: string; description?: string }
+  | { kind: 'list'; item: SimplifiedMcdocType; since?: string; until?: string; description?: string }
+  | { kind: 'tuple'; items: SimplifiedMcdocType[]; since?: string; until?: string; description?: string }
+  | { kind: 'enum'; values: string[]; since?: string; until?: string; description?: string }
+  | { kind: 'literal'; value: string | number | boolean; since?: string; until?: string; description?: string }
+  | { kind: 'map'; value: SimplifiedMcdocType; key?: SimplifiedMcdocType; since?: string; until?: string; description?: string }
+  | { kind: 'primitive'; name: string; since?: string; until?: string; registry?: string; description?: string }
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [k: string]: JsonValue }
 

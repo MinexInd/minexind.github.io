@@ -377,6 +377,55 @@ export class SpyglassService {
     }
   }
 
+  /**
+   * Return the valid entry ids for a vanilla registry (e.g. "item", "block",
+   * "entity_type") for the version this service was initialized with. Used by
+   * the visual form editors to render searchable dropdowns instead of free-text
+   * inputs for `#[id(...)]` fields.
+   *
+   * Vanilla registry ids are exposed by Spyglass as a `dispatcher` keyed by the
+   * registry name (the same symbol the mcdoc `#[id(item)]` attribute resolves
+   * to), so we query the project symbol table the same way type-bridge does.
+   */
+  private registryCache = new Map<string, string[]>()
+  async getRegistryEntries(registry: string, path?: string): Promise<string[]> {
+    await this.settled()
+    if (!this.service) return []
+    const cached = this.registryCache.get(registry)
+    if (cached) return cached
+
+    try {
+      const project = this.service.project as unknown as {
+        symbols?: { query: (doc: unknown, category: string, id: string) => { symbol?: { members?: Record<string, { data?: unknown }> } } }
+      }
+      const symbols = project.symbols
+      if (!symbols) return []
+      // Use any open file's doc as the query context (dispatchers are global).
+      const doc = (path && this.getFile(path)?.doc) || this.firstOpenDoc()
+      if (!doc) return []
+      const query = symbols.query(doc, 'mcdoc/dispatcher', `minecraft:${registry}`)
+      const members = query.symbol?.members
+      const ids = members ? Object.keys(members).sort() : []
+      this.registryCache.set(registry, ids)
+      return ids
+    } catch (e) {
+      console.warn('[spyglass-service] getRegistryEntries failed:', (e as Error).message)
+      return []
+    }
+  }
+
+  /** A doc from any currently-open file, used as a namespace context for
+   *  symbol queries that don't depend on a specific file. Falls back to null if
+   *  no files are open yet. */
+  private firstOpenDoc(): unknown {
+    if (!this.service) return null
+    for (const uri of this.versions.keys()) {
+      const cm = (this.service.project as any).getClientManaged?.(uri)
+      if (cm?.doc) return cm.doc
+    }
+    return null
+  }
+
   /** Open every file in the pack, wait for all parses to settle, then
    *  collect markers from every file. Used by the "Analyze Datapack"
    *  button which needs whole-pack diagnostics in one pass. */

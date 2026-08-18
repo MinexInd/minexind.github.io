@@ -331,16 +331,19 @@ interface VersionInfo {
   since?: string
   until?: string
   registry?: string
+  /** Text of a `#[doc("...")]` attribute, used as field/type help text. */
+  description?: string
 }
 
-/** Pull since/until version gates and the #[id] registry hint off a type or
- *  field's attributes. */
+/** Pull since/until version gates, the #[id] registry hint, and the #[doc]
+ *  description off a type or field's attributes. */
 function versionInfo(attrs: mcdoc.Attributes | undefined): VersionInfo {
   const out: VersionInfo = {}
   for (const a of attrs ?? []) {
     if (a.name === 'since') out.since = attrString(a.value)
     else if (a.name === 'until') out.until = attrString(a.value)
     else if (a.name === 'id') out.registry = attrRegistry(a.value)
+    else if (a.name === 'doc') out.description = attrString(a.value)
   }
   return out
 }
@@ -375,10 +378,10 @@ export function spyglassTypeToEngine(
   if (budget.remaining <= 0) return { kind: 'primitive', name: 'unknown' }
   budget.remaining--
   if (type.kind === 'union') {
-    const { since, until } = versionInfo(type.attributes)
+    const { since, until, description } = versionInfo(type.attributes)
     // An unresolvable reference/dispatcher simplifies to an empty union.
     if (type.members.length === 0) return { kind: 'primitive', name: 'unknown', since, until }
-    return { kind: 'union', options: type.members.map(m => spyglassTypeToEngine(m, budget)), since, until }
+    return { kind: 'union', options: type.members.map(m => spyglassTypeToEngine(m, budget)), since, until, description }
   }
   return spyglassTypeNoUnionToEngine(type, budget)
 }
@@ -389,7 +392,7 @@ function spyglassTypeNoUnionToEngine(
 ): SimplifiedMcdocType {
   if (budget.remaining <= 0) return { kind: 'primitive', name: 'unknown' }
   budget.remaining--
-  const { since, until, registry } = versionInfo(type.attributes)
+  const { since, until, registry, description } = versionInfo(type.attributes)
   switch (type.kind) {
     case 'struct': {
       // A struct with a single dynamic-key field is how mcdoc expresses maps
@@ -411,20 +414,20 @@ function spyglassTypeNoUnionToEngine(
           value: spyglassTypeToEngine(f.type as SpyglassType, budget),
           since: fa.since ?? since,
           until: fa.until ?? until,
+          description: fa.description,
         }
       }
       const fields: SimplifiedMcdocField[] = []
       for (const f of pairFields) {
         const fa = versionInfo(f.attributes)
         if (typeof f.key === 'string') {
-          // Raw symbol-table structs carry plain-string keys (e.g. the
-          // LootPoolEntry "type" discriminator) — treat them as literal.
           fields.push({
             key: f.key,
             type: spyglassTypeToEngine(f.type as SpyglassType, budget),
             required: !f.optional,
             since: fa.since,
             until: fa.until,
+            description: fa.description,
           })
         } else if (f.key.kind === 'literal') {
           const v = f.key.value
@@ -435,10 +438,9 @@ function spyglassTypeNoUnionToEngine(
             required: !f.optional,
             since: fa.since,
             until: fa.until,
+            description: fa.description,
           })
         } else {
-          // Dynamic key (e.g. the recipe "key" map): the field accepts
-          // arbitrary keys, so it becomes a map with the same value type.
           fields.push({
             key: f.desc ?? 'key',
             type: {
@@ -450,13 +452,14 @@ function spyglassTypeNoUnionToEngine(
             required: !f.optional,
             since: fa.since,
             until: fa.until,
+            description: fa.description,
           })
         }
       }
-      return { kind: 'struct', fields, since, until }
+      return { kind: 'struct', fields, since, until, description }
     }
     case 'enum':
-      return { kind: 'enum', values: type.values.map(v => String(v.value)), since, until }
+      return { kind: 'enum', values: type.values.map(v => String(v.value)), since, until, description }
     case 'literal': {
       const v = type.value
       const value =
@@ -464,14 +467,14 @@ function spyglassTypeNoUnionToEngine(
         : v.kind === 'string' ? v.value
         : v.kind === 'long' ? Number(v.value)
         : v.value
-      return { kind: 'literal', value, since, until }
+      return { kind: 'literal', value, since, until, description }
     }
     case 'list':
-      return { kind: 'list', item: spyglassTypeToEngine(type.item as SpyglassType, budget), since, until }
+      return { kind: 'list', item: spyglassTypeToEngine(type.item as SpyglassType, budget), since, until, description }
     case 'tuple':
-      return { kind: 'tuple', items: type.items.map(i => spyglassTypeToEngine(i as SpyglassType, budget)), since, until }
+      return { kind: 'tuple', items: type.items.map(i => spyglassTypeToEngine(i as SpyglassType, budget)), since, until, description }
     case 'string':
-      return { kind: 'primitive', name: 'string', since, until, registry }
+      return { kind: 'primitive', name: 'string', since, until, registry, description }
     case 'byte':
     case 'short':
     case 'int':

@@ -23,6 +23,8 @@ interface McdocEditorProps {
   version: string
   onChange: (next: string) => void
   onShowJson: () => void
+  /** Async lookup of valid ids for a vanilla registry (item, block, …), version-aware. */
+  registryProvider?: (registry: string, path?: string) => Promise<string[]>
 }
 
 interface EditorCtx {
@@ -32,6 +34,8 @@ interface EditorCtx {
   insertValue: (path: JsonPath, index: number, value: JsonValue) => void
   moveValue: (path: JsonPath, from: number, to: number) => void
   renameKey: (path: JsonPath, oldKey: string, newKey: string, value: JsonValue) => void
+  /** Resolve valid registry ids for a `#[id(...)]` field (searchable dropdown). */
+  registryProvider?: (registry: string) => Promise<string[]>
 }
 
 /** A human-readable label for a union member, leaning on a `type` discriminator
@@ -103,6 +107,7 @@ export default function McdocEditor({
   version,
   onChange,
   onShowJson,
+  registryProvider,
 }: McdocEditorProps) {
   const parsed = useMemo(() => buildFormState(content, type), [content, type])
 
@@ -185,6 +190,7 @@ export default function McdocEditor({
     insertValue: (path, index, value) => applyOp(path, value, 'insert', { index }),
     moveValue: (path, from, to) => applyOp(path, null, 'move', { from, to }),
     renameKey: (path, oldKey, newKey, value) => applyOp(path, value, 'rename', { oldKey, newKey }),
+    registryProvider: registryProvider ? (reg: string) => registryProvider(reg) : undefined,
   }
 
   // Re-sync from external content changes (JSON toggle round-trip, version
@@ -339,6 +345,87 @@ function pathKey(path: JsonPath): string {
   return path.length ? path.join('.') : '$'
 }
 
+/**
+ * Searchable dropdown for a `#[id(...)]` registry field (item, block, entity,
+ * sound, …). Loads the valid ids asynchronously (version-aware via Spyglass) and
+ * filters as you type. Styled with the same `.mcdoc-*` classes / theme tokens
+ * as the rest of the form.
+ */
+function RegistrySelect({
+  registry,
+  value,
+  path,
+  optional,
+  ctx,
+}: {
+  registry: string
+  value: string
+  path: JsonPath
+  optional: boolean
+  ctx: EditorCtx
+}) {
+  const [entries, setEntries] = useState<string[] | null>(null)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!ctx.registryProvider) {
+      setEntries(null)
+      return
+    }
+    ctx.registryProvider(registry).then(es => {
+      if (!cancelled) setEntries(es)
+    })
+    return () => { cancelled = true }
+  }, [registry, ctx.registryProvider])
+
+  const list = (entries ?? []).filter(e => e.toLowerCase().includes(query.toLowerCase()))
+  const showList = open && entries !== null
+
+  const commit = (id: string) => {
+    ctx.setValue(path, id)
+    setQuery('')
+    setOpen(false)
+  }
+
+  return (
+    <div className="mcdoc-registry">
+      <input
+        className="mcdoc-input mcdoc-registry-input"
+        value={open ? query : value}
+        spellCheck={false}
+        placeholder={entries === null ? 'Loading…' : value ? '' : `Search ${registry}…`}
+        onFocus={() => { setQuery(''); setOpen(true) }}
+        onChange={e => { setQuery(e.target.value); setOpen(true) }}
+        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+      />
+      {showList && (
+        <ul className="mcdoc-registry-list" role="listbox">
+          {optional && (
+            <li
+              className="mcdoc-registry-option mcdoc-registry-option-clear"
+              onMouseDown={() => { ctx.removeValue(path); setOpen(false); setQuery('') }}
+            >
+              (clear)
+            </li>
+          )}
+          {list.length === 0 && <li className="mcdoc-registry-empty">No matches</li>}
+          {list.slice(0, 200).map(id => (
+            <li
+              key={id}
+              className={'mcdoc-registry-option' + (id === value ? ' is-selected' : '')}
+              onMouseDown={() => commit(id)}
+            >
+              {id}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function renderStruct(
   type: SimplifiedMcdocType & { kind: 'struct' },
   value: JsonValue,
@@ -404,7 +491,10 @@ function renderFieldGroup(
               </span>
             </div>
             {present ? (
-              renderNode(field.type, obj[field.key], fieldPath, ctx, !field.required)
+              <>
+                {field.description && <div className="mcdoc-field-help">{field.description}</div>}
+                {renderNode(field.type, obj[field.key], fieldPath, ctx, !field.required)}
+              </>
             ) : (
               <div className="mcdoc-muted">absent</div>
             )}
@@ -639,6 +729,17 @@ function renderPrimitive(
   }
 
   const str = typeof value === 'string' ? value : ''
+  if (type.registry) {
+    return (
+      <RegistrySelect
+        registry={type.registry}
+        value={str}
+        path={path}
+        optional={optional}
+        ctx={ctx}
+      />
+    )
+  }
   return (
     <input
       key={pathKey(path)}
