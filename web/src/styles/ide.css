@@ -2984,3 +2984,37 @@
   background: var(--stamp-wash);
   color: var(--stamp);
 }
+
+/* Generator bar holds the preset search (recipe/loot_table/advancement/predicate)
+   and the misode-style "Wiki" help link. Reuses the same panel treatment as the
+   recipe preset bar so it reads as part of the IDE chrome. */
+.ide-generator-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 4px var(--s4);
+  background: var(--ground-deep);
+  border-bottom: 1px solid var(--hairline);
+}
+.ide-generator-wiki {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--well);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) var(--ease), color var(--dur-quick) var(--ease), background var(--dur-quick) var(--ease);
+}
+.ide-generator-wiki:hover {
+  border-color: var(--stamp);
+  color: var(--stamp);
+  background: var(--stamp-wash);
+}

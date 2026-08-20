@@ -11,7 +11,9 @@ interface Options {
   formView: boolean
   /** Spyglass must be initialized before types can resolve. */
   spyglassReady: boolean
-  /** Optional discriminator (e.g. recipe `type`) that changes the resolved struct. */
+  /** Discriminator (e.g. recipe `type` value) that selects the resolved struct.
+   *  When it changes the resolved type must be recomputed, otherwise editing the
+   *  `type` field would leave the form showing the previous structure. */
   discriminator?: string | null
   serviceRef: React.MutableRefObject<SpyglassService | null>
   content: string
@@ -62,7 +64,7 @@ export function useResolvedMcdocType(opts: Options): {
       setState('ready')
     })()
     return () => { cancelled = true }
-  }, [path, formView, spyglassReady, serviceRef])
+  }, [path, formView, spyglassReady, discriminator, serviceRef])
 
   return { type, state }
 }

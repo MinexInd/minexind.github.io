@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react'
 import type { JsonValue, JsonPath, SimplifiedMcdocType } from '../../ide/mcdoc-edit'
 import type { McmetaVersion, Mode } from '../../api'
@@ -96,13 +96,33 @@ export default function SplitEditor({
   // Resolve the mcdoc root type for this file so we can render the
   // schema-driven McdocEditor (misode-style generator) whenever the language
   // service has loaded the matching version's vanilla data.
+  // Discriminator that selects the resolved struct (recipe `type`, loot `type`).
+  // When it changes we must re-resolve the schema, otherwise editing the `type`
+  // field would leave the form showing the previous structure — breaking the
+  // code->form direction of the sync.
+  const schemaDiscriminator = useMemo(() => {
+    if (kind !== 'recipe' && kind !== 'loot_table') return null
+    try {
+      const parsed = JSON.parse(jsonText) as Record<string, unknown>
+      const ty = parsed?.type
+      return typeof ty === 'string' ? ty : null
+    } catch {
+      return null
+    }
+  }, [kind, jsonText])
+
+  // Resolve the mcdoc root type for this file so we can render the
+  // schema-driven McdocEditor (misode-style generator) whenever the language
+  // service has loaded the matching version's vanilla data.
   const { type: schemaType, state: schemaState } = useResolvedMcdocType({
     path: activePath,
     formView: true,
     spyglassReady,
+    discriminator: schemaDiscriminator,
     serviceRef,
     content: jsonText,
   })
+
   const useSchemaForm =
     spyglassReady &&
     (schemaState === 'ready' ? schemaType !== null : true)
@@ -143,19 +163,6 @@ export default function SplitEditor({
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
   }, [leftPct, onLeftPctChange])
-
-  // Resolve the mcdoc root type for this file (recipe / advancement / loot_table /
-  // predicate / tag). This is the same type misode uses to build its form.
-  // mcdoc type resolution is intentionally NOT consumed: the mcdoc-driven
-  // McdocEditor does not render reliably once Spyglass loads, so the editor
-  // keeps using the hand-written fallback editors (pre-Spyglass behaviour).
-  useResolvedMcdocType({
-    path: activePath,
-    formView: true,
-    spyglassReady,
-    serviceRef,
-    content: jsonText,
-  })
 
   // Parse JSON without throwing; returns null on invalid input so callers
   // can decide whether to apply the result (we don't want a transient typo

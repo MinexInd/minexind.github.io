@@ -24,7 +24,20 @@ import { toFixPreviewV2, type FixPreviewV2, type FixFileChange } from '../../../
 import { applyFixPreview } from '../../../src/fix-apply'
 import { computeLineDiff } from '../ide/fix-diff'
 import { useResolvedMcdocType } from '../ide/use-mcdoc-type'
-import { fetchRecipeIds, fetchRecipePreset } from '../ide/presets'
+import { fetchPresetIds, fetchPreset } from '../ide/presets'
+import { fetchRegistryEntries } from '../ide/registry-data'
+
+/** Minecraft Wiki landing page for a generator kind (misode-style help link). */
+function wikiUrlForKind(kind: string): string | null {
+  switch (kind) {
+    case 'recipe': return 'https://minecraft.wiki/w/Recipe'
+    case 'advancement': return 'https://minecraft.wiki/w/Advancement'
+    case 'loot_table': return 'https://minecraft.wiki/w/Loot_table'
+    case 'predicate': return 'https://minecraft.wiki/w/Predicate'
+    case 'tag': return 'https://minecraft.wiki/w/Tag'
+    default: return null
+  }
+}
 import type { JsonValue, JsonPath, SimplifiedMcdocType } from '../ide/mcdoc-edit'
 import { exportZip } from '../api'
 import { SpyglassService, type IdeMarker } from '../engine/spyglass-service'
@@ -1065,17 +1078,6 @@ export default function IdePage({
     isGenericFormat && formatView === 'form' &&
     (formatTypeState === 'resolving' || formatType !== null)
 
-  // Version-aware registry id lookup for the schema-driven form editors
-  // (item/block/entity/sound/…). Driven by the Spyglass service, which loads
-  // the vanilla data for whichever Minecraft version the user selected.
-  const registryProvider = useCallback(
-    (registry: string) =>
-      serviceRef.current
-        ? serviceRef.current.getRegistryEntries(registry, activePath ?? undefined)
-        : Promise.resolve([]),
-    [serviceRef, activePath],
-  )
-
   const openFile = useCallback((path: string) => {
     setOpenTabs(prev => (prev.includes(path) ? prev : [...prev, path]))
     setActivePath(path)
@@ -1389,6 +1391,20 @@ export default function IdePage({
     return sortedVersions.find(v => v.name === selectedGameVersion)?.id ?? selectedGameVersion
   }, [selectedGameVersion, sortedVersions])
 
+  // Version-aware registry id lookup for the schema-driven form editors
+  // (item/block/entity/sound/…). Prefer the CDN-sourced vanilla registry ids
+  // (works without Spyglass and is version-accurate); fall back to the language
+  // service when the CDN is unreachable so the dropdown still populates.
+  const registryProvider = useCallback(
+    async (registry: string) => {
+      const cdn = await fetchRegistryEntries(recipePresetVersion, registry)
+      if (cdn.length > 0) return cdn
+      if (serviceRef.current) return serviceRef.current.getRegistryEntries(registry, activePath ?? undefined)
+      return []
+    },
+    [recipePresetVersion, serviceRef, activePath],
+  )
+
   const handleCreateDatapack = useCallback((namespace: string, opts?: { minFormat?: number; maxFormat?: number }) => {
     const version = versions.find(v => v.id === recipePresetVersion)
     const packFormat = version ? version.data_pack_version : 48
@@ -1411,15 +1427,24 @@ export default function IdePage({
   // whenever a recipe file is opened or the version changes. Failures surface
   // as an empty list (the dropdown shows "No presets available"), never an
   // error wall.
+  // 3.1 — Lazily fetch the vanilla preset ID list for the current version
+  // whenever a generator file (recipe / loot_table / advancement / predicate)
+  // is opened or the version changes. Failures surface as an empty list (the
+  // dropdown shows "No presets available"), never an error wall.
   useEffect(() => {
-    if (!activePath || !isRecipePath(activePath) || !recipePresetVersion) {
+    const genKind = activePath ? getSplitKind(activePath) : null
+    const presetKind =
+      genKind === 'recipe' || genKind === 'loot_table' || genKind === 'advancement' || genKind === 'predicate'
+        ? genKind
+        : null
+    if (!activePath || !presetKind || !recipePresetVersion) {
       setPresetIds([])
       setPresetLoading(false)
       return
     }
     let cancelled = false
     setPresetLoading(true)
-    fetchRecipeIds(recipePresetVersion).then(ids => {
+    fetchPresetIds(recipePresetVersion, presetKind).then(ids => {
       if (cancelled) return
       setPresetIds(ids)
       setPresetLoading(false)
@@ -1430,17 +1455,26 @@ export default function IdePage({
   // 3.1 — Load a vanilla preset: replace the file content with the preset's
   // pretty-printed JSON through the same path as any other edit, then snap back
   // to the form view so the new structure is visible immediately.
-  const handleLoadRecipePreset = useCallback(async (id: string) => {
+  // 3.1 — Load a vanilla preset: replace the file content with the preset's
+  // pretty-printed JSON through the same path as any other edit, then snap back
+  // to the form view so the new structure is visible immediately.
+  const handleLoadPreset = useCallback(async (id: string) => {
     if (!id || !activePath) return
+    const genKind = getSplitKind(activePath)
+    const presetKind =
+      genKind === 'recipe' || genKind === 'loot_table' || genKind === 'advancement' || genKind === 'predicate'
+        ? genKind
+        : null
+    if (!presetKind) return
     setPresetSelected(id)
-    const preset = await fetchRecipePreset(recipePresetVersion, id)
+    const preset = await fetchPreset(recipePresetVersion, presetKind, id)
     if (!preset) {
       // Fetch failed — don't leave the dropdown claiming a loaded preset.
       setPresetSelected('')
       return
     }
     handleEdited(activePath, JSON.stringify(preset as JsonValue, null, 2))
-    setRecipeView('form')
+    if (genKind === 'recipe') setRecipeView('form')
   }, [activePath, recipePresetVersion, handleEdited])
 
   // --- 1.7 Analyze Datapack ----------------------------------------------
@@ -2541,12 +2575,17 @@ const handleContextMenuAction = useCallback((action: string) => {
               </div>
             ) : (() => {
               const kind = getSplitKind(activePath)
+              const presetEnabled =
+                kind === 'recipe' || kind === 'loot_table' || kind === 'advancement' || kind === 'predicate'
+              const wikiUrl = kind ? wikiUrlForKind(kind) : null
               if (kind) {
                 return (
                   <>
-                    {kind === 'recipe' && (
+                    {presetEnabled && (
                       <div className="ide-recipe-bar">
-                        <span className="ide-recipe-bar-label">Load preset</span>
+                        <span className="ide-recipe-bar-label">
+                          Load {kind === 'loot_table' ? 'loot table' : kind === 'advancement' ? 'advancement' : kind === 'predicate' ? 'predicate' : 'recipe'} preset
+                        </span>
                         <div className="ide-recipe-search">
                           <input
                             className="ide-recipe-input"
@@ -2556,14 +2595,14 @@ const handleContextMenuAction = useCallback((action: string) => {
                                 ? 'Loading presets…'
                                 : presetIds.length === 0
                                   ? 'No presets available'
-                                  : 'Search vanilla recipes…'
+                                  : `Search vanilla ${kind === 'loot_table' ? 'loot tables' : kind === 'advancement' ? 'advancements' : kind === 'predicate' ? 'predicates' : 'recipes'}…`
                             }
                             value={presetQuery}
                             disabled={presetLoading || presetIds.length === 0}
                             onChange={e => { setPresetQuery(e.target.value); setPresetOpen(true) }}
                             onFocus={() => setPresetOpen(true)}
                             onBlur={() => window.setTimeout(() => setPresetOpen(false), 120)}
-                            aria-label="Search and load a vanilla recipe preset"
+                            aria-label={`Search and load a vanilla ${kind} preset`}
                           />
                           {presetOpen && filteredPresets.length > 0 && (
                             <ul className="ide-recipe-results" role="listbox">
@@ -2572,7 +2611,7 @@ const handleContextMenuAction = useCallback((action: string) => {
                                   key={id}
                                   className="ide-recipe-option"
                                   onMouseDown={() => {
-                                    handleLoadRecipePreset(id)
+                                    handleLoadPreset(id)
                                     setPresetQuery('')
                                     setPresetOpen(false)
                                   }}
@@ -2583,6 +2622,18 @@ const handleContextMenuAction = useCallback((action: string) => {
                             </ul>
                           )}
                         </div>
+                        {wikiUrl && (
+                          <a className="ide-generator-wiki" href={wikiUrl} target="_blank" rel="noreferrer" title="Open the Minecraft Wiki">
+                            Wiki
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    {wikiUrl && !presetEnabled && (
+                      <div className="ide-generator-bar">
+                        <a className="ide-generator-wiki" href={wikiUrl} target="_blank" rel="noreferrer" title="Open the Minecraft Wiki">
+                          Wiki
+                        </a>
                       </div>
                     )}
                     <SplitEditor
