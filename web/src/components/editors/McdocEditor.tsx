@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   defaultValue,
   insertInList,
@@ -25,6 +25,8 @@ interface McdocEditorProps {
   onShowJson: () => void
   /** Async lookup of valid ids for a vanilla registry (item, block, …), version-aware. */
   registryProvider?: (registry: string, path?: string) => Promise<string[]>
+  /** Friendly generator name shown in the form header (e.g. "advancement"). */
+  title?: string
 }
 
 interface EditorCtx {
@@ -108,6 +110,7 @@ export default function McdocEditor({
   onChange,
   onShowJson,
   registryProvider,
+  title,
 }: McdocEditorProps) {
   const parsed = useMemo(() => buildFormState(content, type), [content, type])
 
@@ -225,7 +228,7 @@ export default function McdocEditor({
   if (type === null) {
     return (
       <div className="mcdoc-form">
-        <McdocHeader onShowJson={onShowJson} />
+        <McdocHeader onShowJson={onShowJson} title={title} />
         <div className="mcdoc-form-body">
           <div className="mcdoc-resolving" role="status">
             <span className="mcdoc-resolving-dot" />
@@ -290,12 +293,12 @@ export default function McdocEditor({
   )
 }
 
-function McdocHeader({ onShowJson }: { onShowJson: () => void }) {
+function McdocHeader({ onShowJson, title }: { onShowJson: () => void; title?: string }) {
   return (
     <div className="mcdoc-form-head">
       <div className="mcdoc-form-title">
-        <span className="mcdoc-form-name">mcdoc</span>
-        <span className="mcdoc-badge mcdoc-badge-schema">schema form</span>
+        <span className="mcdoc-form-name">{title ? title[0].toUpperCase() + title.slice(1) : 'Form'}</span>
+        <span className="mcdoc-badge mcdoc-badge-schema">visual form</span>
       </div>
       <button type="button" className="mcdoc-btn-ghost" onClick={onShowJson}>
         Show JSON
@@ -434,73 +437,142 @@ function renderStruct(
 ) {
   const obj: Record<string, JsonValue> =
     value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, JsonValue>) : {}
-  const required = type.fields.filter(f => f.required && typeVisibleAt(f, ctx.version))
-  const optional = type.fields.filter(f => !f.required && typeVisibleAt(f, ctx.version))
-
+  const fields = type.fields.filter(f => typeVisibleAt(f, ctx.version))
+  if (fields.length === 0) {
+    return <div className="mcdoc-muted" key={pathKey(path)}>No fields.</div>
+  }
   return (
     <div className="mcdoc-struct" key={pathKey(path)}>
-      {required.length > 0 && renderFieldGroup('Required', required, obj, path, ctx, false)}
-      {optional.length > 0 && renderFieldGroup('Optional', optional, obj, path, ctx, true)}
-      {required.length === 0 && optional.length === 0 && (
-        <div className="mcdoc-muted">No fields.</div>
-      )}
+      {fields.map(field => renderField(field, obj, path, ctx))}
     </div>
   )
 }
 
-function renderFieldGroup(
-  label: string,
-  fields: SimplifiedMcdocField[],
+/**
+ * One field of a struct. Non-leaf fields (object / list / map / union / tuple)
+ * become a collapsible card — like misode's expandable sections — so a large
+ * schema (an advancement with parent / display / criteria / rewards) reads as a
+ * tidy outline instead of one long flat list. Leaf fields render inline.
+ */
+function renderField(
+  field: SimplifiedMcdocField,
   obj: Record<string, JsonValue>,
   path: JsonPath,
   ctx: EditorCtx,
-  optionalGroup: boolean,
-) {
+): ReactNode {
+  const fieldPath = [...path, field.key]
+  const present = field.key in obj
+  const t = field.type
+  const isLeaf = t.kind === 'primitive' || t.kind === 'enum' || t.kind === 'literal'
+
+  if (!isLeaf) {
+    return (
+      <CollapsibleField
+        key={field.key}
+        label={field.key}
+        since={field.since}
+        until={field.until}
+        present={present}
+        required={field.required}
+        onAdd={() => ctx.setValue(fieldPath, defaultValue(t))}
+        onRemove={() => ctx.removeValue(fieldPath)}
+      >
+        {field.description && <div className="mcdoc-field-help">{field.description}</div>}
+        {present ? renderNode(t, obj[field.key], fieldPath, ctx, !field.required) : null}
+      </CollapsibleField>
+    )
+  }
+
   return (
-    <div className="mcdoc-group">
-      <div className="mcdoc-group-label">{label}</div>
-      {fields.map(field => {
-        const fieldPath = [...path, field.key]
-        const present = field.key in obj
-        return (
-          <div className="mcdoc-field" key={field.key}>
-            <div className="mcdoc-field-head">
-              <label className="mcdoc-field-label">{field.key}</label>
-              <VersionBadges since={field.since} until={field.until} />
-              <span className="mcdoc-field-actions">
-                {optionalGroup && !present && (
-                  <button
-                    type="button"
-                    className="mcdoc-icon-btn"
-                    title={`Add ${field.key}`}
-                    onClick={() => ctx.setValue(fieldPath, defaultValue(field.type))}
-                  >
-                    +
-                  </button>
-                )}
-                {optionalGroup && present && (
-                  <button
-                    type="button"
-                    className="mcdoc-icon-btn"
-                    title={`Remove ${field.key}`}
-                    onClick={() => ctx.removeValue(fieldPath)}
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            </div>
-            {present ? (
-              <>
-                {field.description && <div className="mcdoc-field-help">{field.description}</div>}
-                {renderNode(field.type, obj[field.key], fieldPath, ctx, !field.required)}
-              </>
-            ) : (
-              <div className="mcdoc-muted">absent</div>
-            )}
-          </div>
-        )
-      })}
+    <div className="mcdoc-row" key={field.key}>
+      <div className="mcdoc-field-head">
+        <label className="mcdoc-field-label mcdoc-chip">{field.key}</label>
+        <VersionBadges since={field.since} until={field.until} />
+        <span className="mcdoc-field-actions">
+          {!field.required && present && (
+            <button type="button" className="mcdoc-icon-btn" title={`Remove ${field.key}`} onClick={() => ctx.removeValue(fieldPath)}>
+              ×
+            </button>
+          )}
+          {!field.required && !present && (
+            <button type="button" className="mcdoc-add-btn" title={`Add ${field.key}`} onClick={() => ctx.setValue(fieldPath, defaultValue(t))}>
+              +
+            </button>
+          )}
+        </span>
+      </div>
+      {present ? (
+        renderNode(t, obj[field.key], fieldPath, ctx, !field.required)
+      ) : (
+        <div className="mcdoc-muted mcdoc-row-hint">not set — click + to add</div>
+      )}
+      {field.description && present && <div className="mcdoc-field-help">{field.description}</div>}
+    </div>
+  )
+}
+
+/**
+ * Collapsible section card for an object / list / map field. Mirrors misode's
+ * expandable nodes: a clickable header (chevron + field-name chip + version
+ * badges + add / remove) toggles the body. Absent optional fields show just the
+ * header with a "+" to add; adding one auto-expands so the new structure is
+ * immediately visible.
+ */
+function CollapsibleField({
+  label,
+  since,
+  until,
+  present,
+  required,
+  onAdd,
+  onRemove,
+  children,
+}: {
+  label: string
+  since?: string
+  until?: string
+  present: boolean
+  required: boolean
+  onAdd: () => void
+  onRemove: () => void
+  children?: ReactNode
+}) {
+  const [open, setOpen] = useState(present)
+  // When a field is added (absent -> present), expand it automatically.
+  useEffect(() => {
+    if (present) setOpen(true)
+  }, [present])
+
+  const toggle = () => {
+    if (present) setOpen(o => !o)
+  }
+
+  return (
+    <div className={'mcdoc-card' + (present ? '' : ' mcdoc-card-absent')}>
+      <div
+        className={'mcdoc-card-head' + (present ? ' is-clickable' : '')}
+        onClick={toggle}
+        role={present ? 'button' : undefined}
+        aria-expanded={present ? open : undefined}
+      >
+        <span className={'mcdoc-chevron' + (open ? ' is-open' : '')}>{present ? (open ? '▾' : '▸') : ''}</span>
+        <span className="mcdoc-field-label mcdoc-chip">{label}</span>
+        <VersionBadges since={since} until={until} />
+        <span className="mcdoc-field-actions" onClick={e => e.stopPropagation()}>
+          {!present && (
+            <button type="button" className="mcdoc-add-btn" title={`Add ${label}`} onClick={onAdd}>
+              +
+            </button>
+          )}
+          {present && !required && (
+            <button type="button" className="mcdoc-icon-btn" title={`Remove ${label}`} onClick={onRemove}>
+              ×
+            </button>
+          )}
+        </span>
+      </div>
+      {present && open && <div className="mcdoc-card-body">{children}</div>}
+      {!present && <div className="mcdoc-muted mcdoc-card-hint">click + to add</div>}
     </div>
   )
 }

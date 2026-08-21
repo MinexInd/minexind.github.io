@@ -91,7 +91,7 @@ export default function SplitEditor({
   beforeMount,
   onMount,
 }: SplitEditorProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('split')
+  const [viewMode, setViewMode] = useState<ViewMode>('gui')
   const [jsonText, setJsonText] = useState(initialContent)
   // Resolve the mcdoc root type for this file so we can render the
   // schema-driven McdocEditor (misode-style generator) whenever the language
@@ -240,7 +240,7 @@ export default function SplitEditor({
           onChange={handleFormStringChange}
           versions={versions}
           mode={mode}
-          onShowJson={() => {}}
+          onShowJson={() => setViewMode('split')}
         />
       )
     }
@@ -255,8 +255,9 @@ export default function SplitEditor({
           type={schemaType}
           version={version}
           onChange={handleFormStringChange}
-          onShowJson={() => setViewMode('source')}
+          onShowJson={() => setViewMode('split')}
           registryProvider={registryProvider}
+          title={kind}
         />
       )
     }
@@ -281,9 +282,17 @@ export default function SplitEditor({
         <div className="ide-split-modes" role="group" aria-label="Editor view mode">
           <button
             type="button"
+            className={viewMode === 'gui' ? 'active' : ''}
+            onClick={() => setViewMode('gui')}
+            title="Show the visual form only"
+          >
+            Form
+          </button>
+          <button
+            type="button"
             className={viewMode === 'split' ? 'active' : ''}
             onClick={() => setViewMode('split')}
-            title="Show JSON and form side by side"
+            title="Show the form and JSON side by side"
           >
             Split
           </button>
@@ -294,14 +303,6 @@ export default function SplitEditor({
             title="Show raw JSON only"
           >
             Source
-          </button>
-          <button
-            type="button"
-            className={viewMode === 'gui' ? 'active' : ''}
-            onClick={() => setViewMode('gui')}
-            title="Show visual form only"
-          >
-            GUI
           </button>
         </div>
         {parseError && <span className="ide-split-parse-error">{parseError}</span>}

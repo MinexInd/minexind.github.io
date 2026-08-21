@@ -3018,3 +3018,125 @@
   color: var(--stamp);
   background: var(--stamp-wash);
 }
+
+
+/* ── 3.1b Collapsible section cards (misode-style outline) ────────────────
+   Non-leaf fields (object/list/map/union) render as expandable cards so a
+   large schema reads as a tidy outline. Uses the IDE's own tokens (dark
+   surfaces + orange accent) — not misode's green — so it stays on-theme. */
+
+.mcdoc-card {
+  margin-bottom: var(--s3);
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--r-sm);
+  background: var(--ground);
+}
+
+.mcdoc-card-absent {
+  border-style: dashed;
+  border-color: var(--hairline);
+  background: transparent;
+}
+
+.mcdoc-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid transparent;
+}
+
+.mcdoc-card-head.is-clickable {
+  cursor: pointer;
+}
+
+.mcdoc-card-head.is-clickable:hover {
+  background: var(--docket);
+}
+
+.mcdoc-card.is-clickable > .mcdoc-card-head.is-clickable {
+  border-bottom-color: var(--hairline-soft);
+}
+
+.mcdoc-chevron {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 0.62rem;
+  transition: transform var(--dur-quick) var(--ease-quick);
+  user-select: none;
+}
+
+.mcdoc-card-body {
+  padding: var(--s3) var(--s3) var(--s2) calc(var(--s3) + 14px);
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.mcdoc-card-hint {
+  padding: 2px var(--s3) var(--s2);
+  font-size: 0.72rem;
+}
+
+/* Field-name chip: a small pill that labels each field, like misode's chips. */
+.mcdoc-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--docket);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+/* Leaf (primitive/enum/literal) rows: label chip + inline control. */
+.mcdoc-row {
+  margin-bottom: var(--s3);
+}
+
+.mcdoc-row-hint {
+  margin-top: 2px;
+  font-size: 0.72rem;
+}
+
+.mcdoc-field-help {
+  margin-top: 3px;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  line-height: 1.4;
+}
+
+/* Accent "+" add button — the orange analogue of misode's green ⊕. */
+.mcdoc-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--stamp-edge);
+  border-radius: var(--r-sm);
+  background: var(--stamp-wash);
+  color: var(--stamp-bright);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-quick) var(--ease-quick),
+    border-color var(--dur-quick) var(--ease-quick), color var(--dur-quick) var(--ease-quick);
+}
+
+.mcdoc-add-btn:hover {
+  background: var(--stamp);
+  border-color: var(--stamp);
+  color: var(--stamp-ink);
+}
+
+/* Make the badges sit neatly next to chips in a card head. */
+.mcdoc-card-head .mcdoc-badges {
+  display: inline-flex;
+  gap: 4px;
+}
