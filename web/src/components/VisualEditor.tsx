@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, createContext, useContext } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, createContext, useContext, memo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -18,6 +18,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { getNodeDef, getNodeRegistry, nodeCategories, type GraphNode, type GraphEdge, type FunctionGraph } from '../visual/core/graph/NodeTypes'
+import { validateConnection, validateGraph } from '../visual/core/graph/GraphValidator'
 import { compileGraph } from '../visual/core/compiler/GraphCompiler'
 import { createAdapter, resolveVersion, getDefaultVersion } from '../visual/core/minecraft/catalog'
 import { parseFunction } from '../visual/core/parser/McFunctionParser'
@@ -93,7 +94,7 @@ function textToGraph(text: string, version: string | undefined, namespace: strin
   }
 }
 
-function VNode({ id, data, selected }: NodeProps) {
+const VNode = memo(function VNode({ id, data, selected }: NodeProps) {
   const updateNodeData = useContext(UpdateNodeDataContext)
   const def = getNodeDef((data as any).kind)
   if (!def) return <div className="vnode vnode-unknown">Unknown node</div>
@@ -145,7 +146,7 @@ function VNode({ id, data, selected }: NodeProps) {
       ))}
     </div>
   )
-}
+})
 
 const nodeTypes = { vnode: VNode }
 
@@ -166,6 +167,8 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(seed.edges)
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([])
   const [compiled, setCompiled] = useState<string>('')
+  const [connError, setConnError] = useState<string | null>(null)
+  const [validationStatus, setValidationStatus] = useState<string>('')
   const lastCommittedRef = useRef(initialContent)
 
   const updateNodeData = useCallback(
@@ -184,7 +187,20 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
     setEdges(g.edges)
   }, [initialContent, buildGraph, setNodes, setEdges])
 
-  const onConnect = useCallback((c: Connection) => setEdges((eds) => addEdge(c, eds)), [setEdges])
+  const onConnect = useCallback((c: Connection) => {
+    if (!c.source || !c.target) return
+    const graph: FunctionGraph = {
+      nodes: nodes.map((n) => ({ id: n.id, type: (n.data as any).kind, position: n.position, data: (n.data as any) } as GraphNode)),
+      edges: edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined } as GraphEdge)),
+    }
+    const check = validateConnection(graph, { source: c.source, sourceHandle: c.sourceHandle ?? undefined, target: c.target, targetHandle: c.targetHandle ?? undefined })
+    if (!check.valid) {
+      setConnError(check.reason ?? 'Invalid connection')
+      return
+    }
+    setConnError(null)
+    setEdges((eds) => addEdge(c, eds))
+  }, [nodes, edges, setEdges])
 
   const addNode = useCallback((kind: string) => {
     const id = 'n_' + Math.random().toString(36).slice(2, 9)
@@ -241,6 +257,16 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
     return () => window.removeEventListener('keydown', onKey)
   }, [nodes, duplicateNodes])
 
+  const runValidation = useCallback((): Diagnostic[] => {
+    const graph: FunctionGraph = {
+      nodes: nodes.map((n) => ({ id: n.id, type: (n.data as any).kind, position: n.position, data: (n.data as any) } as GraphNode)),
+      edges: edges.map((e) => ({ id: e.id, source: e.source, sourceHandle: e.sourceHandle ?? undefined, target: e.target, targetHandle: e.targetHandle ?? undefined } as GraphEdge)),
+    }
+    const res = validateGraph(graph, activePath)
+    setValidationStatus(res.valid ? `✓ Graph valid (${graph.nodes.length} nodes)` : `✗ ${res.diagnostics.length} issue(s)`)
+    return res.diagnostics
+  }, [nodes, edges, activePath])
+
   const doCompile = useCallback(() => {
     const graph: FunctionGraph = {
       nodes: nodes.map((n) => ({ id: n.id, type: (n.data as any).kind, position: n.position, data: (n.data as any) } as GraphNode)),
@@ -255,12 +281,13 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
     const adapter = createAdapter(v)
     const { namespace, basePath } = mcfunctionNamespaceBase(activePath)
     const res = compileGraph(graph, { namespace, basePath, adapter })
-    setDiagnostics(res.diagnostics)
+    const graphDiag = runValidation()
+    setDiagnostics([...res.diagnostics, ...graphDiag])
     const text = res.main.commands.join('\n')
     setCompiled(text)
     lastCommittedRef.current = text
     onCommit(text)
-  }, [nodes, edges, version, activePath, onCommit])
+  }, [nodes, edges, version, activePath, onCommit, runValidation])
 
   const onNodeContextMenu: NodeMouseHandler = useCallback((e, node) => {
     e.preventDefault()
@@ -278,12 +305,32 @@ function VisualEditorInner({ activePath, initialContent, version, onCommit, befo
   return (
     <UpdateNodeDataContext.Provider value={updateNodeData}>
       <div className="visual-editor" onClick={closeMenu}>
+        {connError && (
+          <div
+            className="visual-conn-error"
+            onClick={() => setConnError(null)}
+            title="Dismiss"
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, background: '#3a1d1d', color: '#ffb4b4', padding: '6px 10px', fontSize: 13, cursor: 'pointer' }}
+          >
+            <span>⚠ {connError}</span>
+            <span style={{ opacity: 0.7 }}>✕</span>
+          </div>
+        )}
         <div className="visual-editor-bar">
           <div className="visual-mode-toggle" role="group" aria-label="Editor mode">
             <button type="button" className={mode === 'code' ? 'active' : ''} onClick={() => setMode('code')}>Code</button>
             <button type="button" className={mode === 'visual' ? 'active' : ''} onClick={() => setMode('visual')}>Visual</button>
           </div>
           <button type="button" className="visual-compile" onClick={doCompile}>Compile ▶</button>
+          <button
+            type="button"
+            className="visual-validate"
+            onClick={() => setDiagnostics(runValidation())}
+            style={{ background: '#1b2435', color: '#cfe0ff', border: '1px solid #2a3650', borderRadius: 6, padding: '6px 12px', cursor: 'pointer' }}
+          >
+            Validate
+          </button>
+          {validationStatus && <span className="visual-status" style={{ color: '#9fb4d8', fontSize: 12, marginLeft: 8 }}>{validationStatus}</span>}
           <span className="visual-hint">Visual scripting compiles to .mcfunction</span>
         </div>
         {mode === 'code' ? (
