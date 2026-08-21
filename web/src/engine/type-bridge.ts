@@ -137,7 +137,7 @@ function dynamicKindKey(typeDef: mcdoc.McdocType): string | undefined {
  * Past the budget we degrade the rest of the subtree to `unknown` so the tree
  * stays bounded and the form stays responsive.
  */
-const NODE_BUDGET = 8000
+const NODE_BUDGET = 40000
 
 export interface NodeBudget {
   remaining: number

@@ -60,7 +60,23 @@ function parseVersion(v: string): number[] {
 }
 
 /** Is a type (with since/until) visible for the given game version string? */
-export function typeVisibleAt(type: { since?: string; until?: string }, version: string): boolean {
+
+/** Like {@link typeVisibleAt} but also honors a field's own since/until gates
+ *  (mcdoc puts `#[since]` on the field, not the type) and treats an undefined
+ *  selected version as "show everything". */
+export function fieldVisibleAt(
+  field: { since?: string; until?: string; type: { since?: string; until?: string } },
+  version: string | undefined,
+): boolean {
+  if (!version) return true
+  if (field.since && compareVersions(version, field.since) < 0) return false
+  if (field.until && compareVersions(version, field.until) > 0) return false
+  return typeVisibleAt(field.type, version)
+}
+
+export function typeVisibleAt(type: { since?: string; until?: string }, version: string | undefined): boolean {
+  // No version selected yet (e.g. before Spyglass is ready) → show everything.
+  if (!version) return true
   if (type.since && compareVersions(version, type.since) < 0) return false
   if (type.until && compareVersions(version, type.until) > 0) return false
   return true

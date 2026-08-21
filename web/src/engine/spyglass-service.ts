@@ -347,7 +347,7 @@ export class SpyglassService {
     // the resolve+convert with a hard time limit so the editor never hangs in
     // "resolving" — if we overrun, fall back to raw JSON instead of freezing.
     const START = (typeof performance !== 'undefined' ? performance.now() : Date.now())
-    const TIME_BUDGET_MS = 2000
+    const TIME_BUDGET_MS = 5000
     try {
       // Core FileNode wraps the language's file node, which wraps the root
       // JsonNode: file -> json:file -> json:object.

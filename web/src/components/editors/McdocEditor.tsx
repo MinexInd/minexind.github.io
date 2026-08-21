@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   defaultValue,
+  fieldVisibleAt,
   insertInList,
   moveListItem,
   removeAtPath,
@@ -121,8 +122,13 @@ export default function McdocEditor({
   const lastCommittedRef = useRef(content)
   const lastTypeRef = useRef(type)
 
-  const rootRef = useRef<JsonValue>(parsed.value ?? null)
-  const [root, setRoot] = useState<JsonValue>(parsed.value ?? null)
+  // A brand-new / empty file parses to `null`. For a struct root that would
+  // render a blank form, so fall back to `{}` so every top-level field still
+  // shows (as an absent "+" card) — like misode's empty generator. Non-struct
+  // roots stay null (nothing meaningful to show yet).
+  const initialRoot: JsonValue = parsed.value ?? (type && type.kind === 'struct' ? {} : null)
+  const rootRef = useRef<JsonValue>(initialRoot)
+  const [root, setRoot] = useState<JsonValue>(initialRoot)
   const pendingRef = useRef<{ timer?: number; path?: JsonPath; value?: JsonValue }>({})
 
   const doCommit = (path: JsonPath, value: JsonValue) => {
@@ -341,7 +347,44 @@ function renderNode(
       return renderMap(type, v, path, ctx)
     case 'primitive':
       return renderPrimitive(type, v, path, ctx, optional)
+    default:
+      // Any other kind (e.g. a degraded `any`/`unsafe` node past the resolution
+      // budget) must stay editable as raw JSON — never drop a field silently.
+      return renderUnknown(type, v, path, ctx, optional)
   }
+}
+
+function jsonText(v: JsonValue): string {
+  return typeof v === 'string' ? v : JSON.stringify(v, null, 2)
+}
+
+/** Editable raw-JSON area for values whose schema resolved to `any` / `unsafe`
+ *  / `unknown` (e.g. a subtree past the resolution budget). Keeps the field
+ *  usable instead of rendering nothing. */
+function JsonArea({ value, path, ctx, optional }: { value: JsonValue; path: JsonPath; ctx: EditorCtx; optional: boolean }) {
+  const [text, setText] = useState(() => jsonText(value))
+  const serialized = jsonText(value)
+  useEffect(() => { setText(serialized) }, [serialized])
+  const commit = useCallback(() => {
+    try {
+      ctx.setValue(path, JSON.parse(text) as JsonValue)
+    } catch {
+      // Invalid JSON mid-edit — keep the local text, don't push to the doc.
+    }
+  }, [text, path, ctx])
+  return (
+    <textarea
+      className="mcdoc-input mcdoc-json-area"
+      value={text}
+      spellCheck={false}
+      onChange={e => setText(e.target.value)}
+      onBlur={commit}
+    />
+  )
+}
+
+function renderUnknown(_type: SimplifiedMcdocType, value: JsonValue, path: JsonPath, ctx: EditorCtx, optional: boolean) {
+  return <JsonArea value={value} path={path} ctx={ctx} optional={optional} />
 }
 
 function pathKey(path: JsonPath): string {
@@ -401,7 +444,19 @@ function RegistrySelect({
         placeholder={entries === null ? 'Loading…' : value ? '' : `Search ${registry}…`}
         onFocus={() => { setQuery(''); setOpen(true) }}
         onChange={e => { setQuery(e.target.value); setOpen(true) }}
-        onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && query.trim()) {
+            e.preventDefault()
+            commit(query.trim())
+          }
+        }}
+        onBlur={() =>
+          window.setTimeout(() => {
+            // Allow typing a custom id even when the dropdown has no match.
+            if (query.trim() && query.trim() !== value) ctx.setValue(path, query.trim())
+            setOpen(false)
+          }, 120)
+        }
       />
       {showList && (
         <ul className="mcdoc-registry-list" role="listbox">
@@ -437,7 +492,7 @@ function renderStruct(
 ) {
   const obj: Record<string, JsonValue> =
     value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, JsonValue>) : {}
-  const fields = type.fields.filter(f => typeVisibleAt(f, ctx.version))
+  const fields = type.fields.filter(f => fieldVisibleAt(f, ctx.version))
   if (fields.length === 0) {
     return <div className="mcdoc-muted" key={pathKey(path)}>No fields.</div>
   }
@@ -463,7 +518,10 @@ function renderField(
   const fieldPath = [...path, field.key]
   const present = field.key in obj
   const t = field.type
-  const isLeaf = t.kind === 'primitive' || t.kind === 'enum' || t.kind === 'literal'
+  // Unions render inline (their variant <select> must stay visible, like
+  // misode's Head), not inside a collapsed card. Struct/list/map/tuple stay
+  // collapsible cards.
+  const isLeaf = t.kind === 'primitive' || t.kind === 'enum' || t.kind === 'literal' || t.kind === 'union'
 
   if (!isLeaf) {
     return (
@@ -811,6 +869,13 @@ function renderPrimitive(
         ctx={ctx}
       />
     )
+  }
+  // `unknown`/`any` mean the schema couldn't fully resolve (e.g. past the
+  // node budget) — let the user edit the raw value as JSON instead of a flat
+  // string.
+  const nm = type.name.toLowerCase()
+  if (nm === 'unknown' || nm === 'any') {
+    return <JsonArea value={value} path={path} ctx={ctx} optional={optional} />
   }
   return (
     <input

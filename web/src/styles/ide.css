@@ -3140,3 +3140,24 @@
   display: inline-flex;
   gap: 4px;
 }
+
+/* Editable raw-JSON area for values whose schema resolved to `any` / `unknown`
+   (degraded past the resolution budget) — keeps the field usable. */
+.mcdoc-json-area {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: var(--s2) var(--s3);
+  outline: none;
+}
+.mcdoc-json-area:focus {
+  border-color: var(--stamp);
+  box-shadow: var(--ring);
+}
