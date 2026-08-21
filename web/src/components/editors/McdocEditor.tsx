@@ -85,6 +85,7 @@ function VersionBadges({ since, until }: { since?: string; until?: string }) {
 // above typical large generators (loot tables expand to ~20k type nodes) so
 // real files render; only truly pathological schemas fall back to raw JSON.
 const MAX_RENDER_NODES = 500000
+const MAX_EXPAND_NODES = 500
 function countTypeNodes(t: SimplifiedMcdocType, seen = new Set<object>()): number {
   if (typeof t !== 'object' || t === null || seen.has(t)) return 0
   seen.add(t)
@@ -531,6 +532,7 @@ function renderField(
     return (
       <CollapsibleField
         key={field.key}
+        type={t}
         label={field.key}
         since={field.since}
         until={field.until}
@@ -581,6 +583,7 @@ function renderField(
  * immediately visible.
  */
 function CollapsibleField({
+  type,
   label,
   since,
   until,
@@ -590,6 +593,7 @@ function CollapsibleField({
   onRemove,
   children,
 }: {
+  type: SimplifiedMcdocType
   label: string
   since?: string
   until?: string
@@ -600,9 +604,11 @@ function CollapsibleField({
   children?: ReactNode
 }) {
   // Collapsed by default (like misode) so a large schema only renders the
-  // headers it needs — each field's body is built lazily when the user expands
-  // it, instead of materializing the whole 20k+ node tree at once.
-  const [open, setOpen] = useState(false)
+  // headers it needs. Small sections (e.g. an advancement's display/criteria)
+  // expand on open so the form isn't an empty wall of collapsed headers, while
+  // large ones (a loot table's 20k-node pools) stay collapsed until opened.
+  // Each field's body is still built lazily when expanded, never eager.
+  const [open, setOpen] = useState(() => present && countTypeNodes(type) <= MAX_EXPAND_NODES)
   // Expand automatically only when a field is *added* (absent -> present), never
   // on first mount, so existing content stays collapsed until the user opens it.
   const wasPresent = useRef(present)
