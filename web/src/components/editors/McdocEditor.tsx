@@ -556,7 +556,7 @@ function renderField(
               ×
             </button>
           )}
-          {!field.required && !present && (
+          {!present && (
             <button type="button" className="mcdoc-add-btn" title={`Add ${field.key}`} onClick={() => ctx.setValue(fieldPath, defaultValue(t))}>
               +
             </button>
