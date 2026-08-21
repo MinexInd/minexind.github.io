@@ -351,8 +351,21 @@ export function replaceNode(
   const range = findNodeRange(content, path)
   if (!range) return null
 
-  const serialized = serializeNode(value)
+  const serialized = serializeForSplice(content, range.start, value)
   return content.slice(0, range.start) + serialized + content.slice(range.end)
+}
+
+// Serialize a value so it slots into `content` at `start` without disturbing the
+// surrounding indentation. Primitives stay on one line (serializeNode); objects /
+// arrays are pretty-printed and re-indented to sit under their parent key.
+function serializeForSplice(content: string, start: number, value: JsonValue): string {
+  if (value === null || typeof value !== 'object') return serializeNode(value)
+  const lineStart = content.lastIndexOf('\n', start - 1) + 1
+  const leadingWs = content.slice(lineStart, start).match(/^[ \t]*/)?.[0] ?? ''
+  const baseIndent = leadingWs.length
+  const pretty = JSON.stringify(value, null, 2)
+  const lines = pretty.split('\n')
+  return lines.map((ln, i) => (i === 0 ? ln : ' '.repeat(baseIndent) + ln)).join('\n')
 }
 
 /**
