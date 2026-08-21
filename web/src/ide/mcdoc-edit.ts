@@ -255,12 +255,26 @@ export function selectUnionOption(type: SimplifiedMcdocType, value: JsonValue | 
     switch (o.kind) {
       case 'struct': {
         if (Array.isArray(value) || typeof value !== 'object' || value === null) return 0
-        const keys = Object.keys(value)
+        const v = value as Record<string, JsonValue>
+        const keys = Object.keys(v)
         if (keys.length === 0) return 2
         // Prefer the branch whose fields actually overlap the value's keys,
         // e.g. {"id": ...} should select ItemStackTemplate over ItemResult.
-        const overlap = keys.filter(k => o.fields.some(f => f.key === k)).length
-        return 2 + overlap
+        let score = 2
+        for (const f of o.fields) {
+          if (f.key in v) {
+            score += 1
+            // Strong bonus when a discriminator *enum* field's value-set contains
+            // the value's actual value (e.g. an advancement trigger `type`). Without
+            // this, two variants that both expose a `type` enum key tie on plain
+            // key-overlap and the first (wrong) variant is selected.
+            const ft = (f as any).type
+            if (ft && ft.kind === 'enum' && typeof v[f.key] === 'string' && Array.isArray(ft.values) && ft.values.includes(v[f.key])) {
+              score += 1000
+            }
+          }
+        }
+        return score
       }
       case 'list': return Array.isArray(value) ? 2 : 0
       case 'map': return !Array.isArray(value) && typeof value === 'object' ? 2 : 0
