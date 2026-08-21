@@ -85,6 +85,7 @@ function VersionBadges({ since, until }: { since?: string; until?: string }) {
 // above typical large generators (loot tables expand to ~20k type nodes) so
 // real files render; only truly pathological schemas fall back to raw JSON.
 const MAX_RENDER_NODES = 500000
+const MAX_LIST_RENDER = 100
 const MAX_EXPAND_NODES = 500
 function countTypeNodes(t: SimplifiedMcdocType, seen = new Set<object>()): number {
   if (typeof t !== 'object' || t === null || seen.has(t)) return 0
@@ -337,7 +338,7 @@ function renderNode(
     case 'union':
       return renderUnion(type, v, path, ctx)
     case 'list':
-      return renderList(type, v, path, ctx)
+      return <ListView type={type} value={v} path={path} ctx={ctx} />
     case 'tuple':
       return renderTuple(type, v, path, ctx)
     case 'enum':
@@ -683,16 +684,23 @@ function renderUnion(
   )
 }
 
-function renderList(
-  type: SimplifiedMcdocType & { kind: 'list' },
-  value: JsonValue,
-  path: JsonPath,
-  ctx: EditorCtx,
-) {
+function ListView({
+  type,
+  value,
+  path,
+  ctx,
+}: {
+  type: SimplifiedMcdocType & { kind: 'list' }
+  value: JsonValue
+  path: JsonPath
+  ctx: EditorCtx
+}) {
   const arr = Array.isArray(value) ? value : []
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? arr : arr.slice(0, MAX_LIST_RENDER)
   return (
     <div className="mcdoc-list" key={pathKey(path)}>
-      {arr.map((item, i) => (
+      {visible.map((item, i) => (
         <div className="mcdoc-list-row" key={i}>
           <span className="mcdoc-list-controls">
             <button
@@ -725,6 +733,14 @@ function renderList(
           {renderNode(type.item, item, [...path, i], ctx)}
         </div>
       ))}
+      {!showAll && arr.length > MAX_LIST_RENDER && (
+        <div className="mcdoc-list-more mcdoc-muted">
+          Showing {MAX_LIST_RENDER} of {arr.length} items —{' '}
+          <button type="button" className="mcdoc-btn-ghost" onClick={() => setShowAll(true)}>
+            Show all
+          </button>
+        </div>
+      )}
       <button
         type="button"
         className="mcdoc-add"
