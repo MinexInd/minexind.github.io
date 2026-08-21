@@ -80,7 +80,11 @@ function VersionBadges({ since, until }: { since?: string; until?: string }) {
  * would freeze the tab. Count nodes and, past the threshold, refuse to render
  * the form (offering raw JSON instead) rather than lock up the main thread.
  */
-const MAX_RENDER_NODES = 15000
+// Backstop against a schema so large it could still choke the renderer even
+// with lazy (collapsed-by-default) rendering. We deliberately set this well
+// above typical large generators (loot tables expand to ~20k type nodes) so
+// real files render; only truly pathological schemas fall back to raw JSON.
+const MAX_RENDER_NODES = 500000
 function countTypeNodes(t: SimplifiedMcdocType, seen = new Set<object>()): number {
   if (typeof t !== 'object' || t === null || seen.has(t)) return 0
   seen.add(t)
@@ -595,10 +599,16 @@ function CollapsibleField({
   onRemove: () => void
   children?: ReactNode
 }) {
-  const [open, setOpen] = useState(present)
-  // When a field is added (absent -> present), expand it automatically.
+  // Collapsed by default (like misode) so a large schema only renders the
+  // headers it needs — each field's body is built lazily when the user expands
+  // it, instead of materializing the whole 20k+ node tree at once.
+  const [open, setOpen] = useState(false)
+  // Expand automatically only when a field is *added* (absent -> present), never
+  // on first mount, so existing content stays collapsed until the user opens it.
+  const wasPresent = useRef(present)
   useEffect(() => {
-    if (present) setOpen(true)
+    if (present && !wasPresent.current) setOpen(true)
+    wasPresent.current = present
   }, [present])
 
   const toggle = () => {
