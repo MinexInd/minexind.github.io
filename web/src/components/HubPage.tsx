@@ -70,10 +70,6 @@ export default function HubPage({ onOpenDatapackEditor }: HubPageProps) {
               <span className="reg-key">Studio</span>
               <span className="reg-val">MinexStudio</span>
             </span>
-            <span className="reg-field">
-              <span className="reg-key">Build</span>
-              <span className="reg-val">v0.6.0</span>
-            </span>
             <span className="reg-field reg-push">
               <span className="reg-key">Runtime</span>
               <span className="reg-val">browser only</span>
@@ -188,9 +184,8 @@ export default function HubPage({ onOpenDatapackEditor }: HubPageProps) {
 
         <footer className="hub-footer">
           <p>Runs entirely in your browser — nothing is uploaded.</p>
-          <a href="https://github.com/MinexInd/datapack-version-checker" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/MinexInd/datapack-version-checker/issues" target="_blank" rel="noopener">Report an issue</a>
-          <span className="hf-version">v0.6.0</span>
+          <a href="https://github.com/MinexInd/minexind.github.io" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/MinexInd/minexind.github.io/issues" target="_blank" rel="noopener">Report an issue</a>
         </footer>
       </div>
     </div>
