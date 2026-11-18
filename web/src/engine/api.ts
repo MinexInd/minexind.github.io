@@ -86,6 +86,27 @@ async function doFetch<T>(url: string, label: string): Promise<T> {
 }
 
 export async function fetchVersions(): Promise<McmetaVersion[]> {
+  const cache = await getCache()
+  try {
+    // Attempt fresh network fetch first so new Minecraft versions auto-update
+    const res = await fetch(VERSIONS_URL, { cache: 'no-cache' })
+    if (res.ok) {
+      await safePut(cache, VERSIONS_URL, res.clone())
+      return (await res.json()) as McmetaVersion[]
+    }
+  } catch {
+    // Offline or network hiccup — fall through to cached version
+  }
+
+  const cached = await safeGet(cache, VERSIONS_URL)
+  if (cached) {
+    try {
+      return (await cached.json()) as McmetaVersion[]
+    } catch {
+      // ignore parse error and fall back
+    }
+  }
+
   return doFetch<McmetaVersion[]>(VERSIONS_URL, 'versions')
 }
 

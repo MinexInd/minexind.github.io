@@ -26,7 +26,7 @@ const JDELIVR_BASE = 'https://cdn.jsdelivr.net/gh/misode/mcmeta'
 // original API returns correct gzips but is intermittently down. Bundling the
 // current latest release covers the common "auto" case reliably. Other versions
 // fall back to the original API (correct per-version tarball when healthy).
-const BUNDLED_VERSION = '26.2'
+const BUNDLED_VERSION = '26.3'
 
 function resolveSpyglassRewrite(url: string): string | undefined {
   const prefix = `https://${SPYGLASS_HOST}`
