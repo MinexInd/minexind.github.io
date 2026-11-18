@@ -1,144 +1,96 @@
 # minexind.github.io
 
-A Minecraft Datapack IDE inspired by [misode.github.io](https://misode.github.io) and [VSCode](https://code.visualstudio.com/), built with React, TypeScript, and Vite.
+A Minecraft Datapack IDE. This repo is the source for the live site at [minexind.github.io](https://minexind.github.io).
+
+## About
+
+Minex Datapack IDE is a browser-based editor for Minecraft datapacks. You can write files as code, fill in forms, or build functions visually with a node editor.
+
+The repo has two main parts:
+- `web/` — the React app that runs in your browser
+- `src/` — the datapack-version-checker engine (analysis, fixing, validation)
 
 ## Features
 
-### Visual Editors
-- **pack.mcmeta Editor** - Visual editor with legacy/new-style format support, JSON text component descriptions, and version dropdown
-- **Recipe Editor** - Form-based recipe editing with type detection
-- **Loot Table Editor** - Visual loot table editing
-- **Predicate Editor** - Condition editing with form view
-- **Advancement Editor** - Advancement tree editing
+**Code editing** — Monaco editor with SpyglassMC validation and autocomplete for JSON, mcfunction, and SNBT.
 
-### VSCode-like IDE Features
-- **Command Palette** (Ctrl+Shift+P) - Quick access to all commands
-- **Quick Open** (Ctrl+P) - Fuzzy file search and go to line
-- **Breadcrumbs** - Navigate file paths easily
-- **Terminal Panel** (Ctrl+`) - Integrated terminal output
-- **Virtualized File Tree** - Smooth scrolling even with large packs
-- **Context Menu** - Right-click for file operations
-- **Multiple Tabs** - Open and manage multiple files
-- **Split Editor** - Side-by-side editing (coming soon)
-- **Problems Panel** - View errors and warnings
-- **Status Bar** - File info, cursor position, version
+**Form editors** — Friendly forms for pack.mcmeta, recipes, loot tables, predicates, advancements, and tags.
 
-### Keyboard Shortcuts
+**Visual Editor** — A node-based editor for .mcfunction files. Connect blocks to build logic, then compile to commands. Or paste an existing function and decompile it back to a graph.
+
+**Version checker** — Scan your pack for compatibility issues across Minecraft versions. The tool can auto-fix many common problems.
+
+## Getting Started
+
+You need Node.js 18+ and npm.
+
+```bash
+npm install
+npm run dev
+```
+
+To build everything:
+
+```bash
+npm run build
+npm test
+```
+
+## Project Structure
+
+```
+.
+├── src/                      # datapack-version-checker engine
+│   ├── analyzer.ts  fixer.ts  mcdoc-check.ts  json-check.ts
+│   ├── rules.ts  knowledge.ts  resource-knowledge.ts
+│   ├── spyglass-analyze.ts  server.ts  mcp-server.ts
+│   └── ...
+├── web/                      # the IDE
+│   └── src/
+│       ├── components/       # IdePage, VisualEditor, editors
+│       ├── visual/core/      # compiler, decompiler, validator
+│       ├── engine/           # Spyglass service, analysis
+│       ├── ide/              # pack-mcmeta/mcdoc editing
+│       └── styles/
+├── tests/  docs/  scripts/
+└── package.json
+```
+
+## Keyboard Shortcuts
+
 | Shortcut | Action |
 |----------|--------|
 | Ctrl/Cmd + S | Export pack |
 | Ctrl/Cmd + Shift + A | Analyze pack |
 | Ctrl/Cmd + P | Quick Open |
 | Ctrl/Cmd + Shift + P | Command Palette |
-| Ctrl/Cmd + B | Toggle Sidebar |
-| Ctrl/Cmd + W | Close Tab |
-| Ctrl/Cmd + N | New File |
-| Ctrl/Cmd + J | Toggle Panel |
-| Ctrl/Cmd + ` | Toggle Terminal |
-| Ctrl/Cmd + O | Open File |
-| Escape | Close tab/cancel dialog |
-
-### Performance Optimizations
-- Virtual scrolling for file tree (handles 1000+ files smoothly)
-- Debounced edits and saves
-- Memoized computations
-- Efficient React rendering with proper dependency arrays
-- Stale closure fixes for real-time updates
+| Ctrl/Cmd + B | Toggle sidebar |
+| Ctrl/Cmd + W | Close tab |
+| Ctrl/Cmd + N | New file |
+| Ctrl/Cmd + J | Toggle panel |
+| Ctrl/Cmd + ` | Toggle terminal |
+| Esc | Close tab / cancel |
 
 ## Tech Stack
 
-- **React 18** - UI framework
-- **TypeScript** - Type safety
-- **Vite** - Build tool
-- **Monaco Editor** - Code editing
-- **SpyglassMC** - Minecraft data parsing and validation
-- **CSS Modules** - Styling
+React 18, TypeScript, Vite, Monaco Editor, SpyglassMC, React Flow (@xyflow/react), Playwright.
 
-## Getting Started
+## Documentation
 
-### Prerequisites
-- Node.js 18+
-- npm or yarn
+For more details, see [docs.md](docs.md).
 
-### Installation
+## Credits
 
-```bash
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
-```
-
-## Project Structure
-
-```
-web/src/
-├── components/
-│   ├── IdePage.tsx          # Main IDE component
-│   ├── McmetaEditor.tsx     # pack.mcmeta visual editor
-│   ├── McdocEditor.tsx      # Generic mcdoc form editor
-│   ├── CommandPalette.tsx   # VSCode-like command palette
-│   ├── QuickOpen.tsx        # Quick file open
-│   ├── Breadcrumbs.tsx      # Path breadcrumbs
-│   ├── TerminalPanel.tsx    # Terminal output panel
-│   ├── VirtualizedFileTree.tsx # Virtual scrolling file tree
-│   └── ContextMenu.tsx      # Right-click context menu
-├── ide/
-│   ├── pack-mcmeta-edit.ts  # pack.mcmeta read/write logic
-│   ├── mcdoc-edit.ts        # Mcdoc form rendering
-│   ├── use-mcdoc-type.ts    # Type resolution hook
-│   └── presets.ts           # Recipe presets
-├── engine/
-│   ├── spyglass-service.ts  # SpyglassMC integration
-│   ├── type-bridge.ts       # Type conversion
-│   └── engine.ts            # Core engine logic
-└── styles/
-    ├── ide.css               # Main IDE styles
-    ├── CommandPalette.css
-    ├── QuickOpen.css
-    ├── Breadcrumbs.css
-    ├── TerminalPanel.css
-    └── VirtualizedFileTree.css
-```
-
-## Credits & Acknowledgments
-
-### VSCode
-This project draws heavy inspiration from [Visual Studio Code](https://code.visualstudio.com/) (MIT License):
-- File tree with virtual scrolling and filtering
-- Command palette (Ctrl+Shift+P)
-- Quick Open (Ctrl+P)
-- Keyboard shortcut system
-- Context menus
-- Status bar and breadcrumbs
-- Problems panel
-
-### misode/misode.github.io
-Reference implementation for visual Minecraft datapack editors:
-- pack.mcmeta visual editor with legacy/new-style format support
-- Recipe, loot table, predicate, and advancement form editors
-- JSON text component support for descriptions
-
-### SpyglassMC
-Minecraft data parsing and validation powered by [SpyglassMC](https://spyglassmc.com/):
-- Type-safe mcdoc schema parsing
-- Real-time validation and diagnostics
-- Version-aware type resolution
-
-### Monaco Editor
-Code editing provided by [Monaco Editor](https://microsoft.github.io/monaco-editor/):
-- Syntax highlighting
-- IntelliSense
-- Multi-cursor editing
+- [Visual Studio Code](https://code.visualstudio.com/) (MIT) — IDE UX inspiration
+- [misode/misode.github.io](https://github.com/misode/misode.github.io) — reference for visual datapack editors
+- [SpyglassMC](https://spyglassmc.com/) — Minecraft data parsing and validation
+- [Monaco Editor](https://microsoft.github.io/monaco-editor/) — code editing
+- [React Flow](https://reactflow.dev/) — node-based Visual Editor canvas
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE.md](LICENSE.md) for details.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Found a bug or have an idea? Pull requests and issues are welcome.
