@@ -91,13 +91,144 @@ export { CMD_REWRITES, type CmdRewrite }
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the set of known datapack registry path segments from PORT_RULES.
- * Each entry maps a directory segment (e.g. "dialog", "worldgen/biome") to
+ * Core datapack registry path segments (singular in 1.21+, plural pre-1.21).
+ */
+const CORE_REGISTRY_SEGMENTS: Array<{ segment: string; since: string }> = [
+  { segment: 'function', since: '1.21' },
+  { segment: 'functions', since: '1.13' },
+  { segment: 'loot_table', since: '1.21' },
+  { segment: 'loot_tables', since: '1.13' },
+  { segment: 'recipe', since: '1.21' },
+  { segment: 'recipes', since: '1.13' },
+  { segment: 'advancement', since: '1.21' },
+  { segment: 'advancements', since: '1.13' },
+  { segment: 'predicate', since: '1.21' },
+  { segment: 'predicates', since: '1.15' },
+  { segment: 'item_modifier', since: '1.21' },
+  { segment: 'item_modifiers', since: '1.17' },
+  { segment: 'structure', since: '1.21' },
+  { segment: 'structures', since: '1.13' },
+  { segment: 'tags/function', since: '1.21' },
+  { segment: 'tags/functions', since: '1.13' },
+  { segment: 'tags/item', since: '1.21' },
+  { segment: 'tags/items', since: '1.13' },
+  { segment: 'tags/block', since: '1.21' },
+  { segment: 'tags/blocks', since: '1.13' },
+  { segment: 'tags/entity_type', since: '1.21' },
+  { segment: 'tags/entity_types', since: '1.13' },
+  { segment: 'tags/game_event', since: '1.21' },
+  { segment: 'tags/game_events', since: '1.19' },
+  { segment: 'tags', since: '1.13' },
+]
+
+/**
+ * Derive the set of known datapack registry path segments from PORT_RULES
+ * and core registry definitions.
+ * Each entry maps a directory segment (e.g. "dialog", "worldgen/biome", "function") to
  * the version from which it exists.
  */
-const KNOWN_REGISTRY_SEGMENTS: Array<{ segment: string; since: string }> = PORT_RULES
-  .filter(r => r.type === 'registry' && r.scope === 'datapack')
-  .map(r => ({ segment: String(r.match).replace(/\/$/, ''), since: r.since! }))
+const SEEN_SEGMENTS = new Set<string>()
+const KNOWN_REGISTRY_SEGMENTS: Array<{ segment: string; since: string }> = []
+for (const entry of [
+  ...CORE_REGISTRY_SEGMENTS,
+  ...PORT_RULES
+    .filter(r => r.type === 'registry' && r.scope === 'datapack')
+    .map(r => ({ segment: String(r.match).replace(/\/$/, ''), since: r.since! })),
+]) {
+  if (!SEEN_SEGMENTS.has(entry.segment)) {
+    SEEN_SEGMENTS.add(entry.segment)
+    KNOWN_REGISTRY_SEGMENTS.push(entry)
+  }
+}
+
+const PLURAL_TO_SINGULAR: Record<string, string> = {
+  functions: 'function',
+  loot_tables: 'loot_table',
+  recipes: 'recipe',
+  advancements: 'advancement',
+  predicates: 'predicate',
+  item_modifiers: 'item_modifier',
+  structures: 'structure',
+}
+
+const SINGULAR_TO_PLURAL: Record<string, string> = {
+  function: 'functions',
+  loot_table: 'loot_tables',
+  recipe: 'recipes',
+  advancement: 'advancements',
+  predicate: 'predicates',
+  item_modifier: 'item_modifiers',
+  structure: 'structures',
+}
+
+function normalizeRegistry(reg: string): string {
+  return PLURAL_TO_SINGULAR[reg] ?? reg
+}
+
+/**
+ * Restructure directory paths across the 1.21 boundary.
+ *
+ * In 1.21, datapack directories were renamed from plural to singular:
+ *   functions/ -> function/
+ *   loot_tables/ -> loot_table/
+ *   recipes/ -> recipe/
+ *   advancements/ -> advancement/
+ *   predicates/ -> predicate/
+ *   item_modifiers/ -> item_modifier/
+ *   structures/ -> structure/
+ *   tags/functions/ -> tags/function/
+ *   tags/items/ -> tags/item/
+ *   tags/blocks/ -> tags/block/
+ *   tags/entity_types/ -> tags/entity_type/
+ *   tags/game_events/ -> tags/game_event/
+ *
+ * Forward port across 1.21 (source < 1.21, target >= 1.21): plural -> singular.
+ * Backward port across 1.21 (source >= 1.21, target < 1.21): singular -> plural.
+ */
+export function restructurePath(
+  relPath: string,
+  sourceVersion: string,
+  targetVersion: string,
+): string {
+  if (!sourceVersion || !targetVersion) return relPath
+
+  const crossingForward = cmpVer(sourceVersion, '1.21') < 0 && cmpVer(targetVersion, '1.21') >= 0
+  const crossingBackward = cmpVer(sourceVersion, '1.21') >= 0 && cmpVer(targetVersion, '1.21') < 0
+
+  if (!crossingForward && !crossingBackward) {
+    return relPath
+  }
+
+  if (crossingForward) {
+    return relPath
+      .replace(/^data\/([^/]+)\/functions\//, 'data/$1/function/')
+      .replace(/^data\/([^/]+)\/loot_tables\//, 'data/$1/loot_table/')
+      .replace(/^data\/([^/]+)\/recipes\//, 'data/$1/recipe/')
+      .replace(/^data\/([^/]+)\/advancements\//, 'data/$1/advancement/')
+      .replace(/^data\/([^/]+)\/predicates\//, 'data/$1/predicate/')
+      .replace(/^data\/([^/]+)\/item_modifiers\//, 'data/$1/item_modifier/')
+      .replace(/^data\/([^/]+)\/structures\//, 'data/$1/structure/')
+      .replace(/^data\/([^/]+)\/tags\/functions\//, 'data/$1/tags/function/')
+      .replace(/^data\/([^/]+)\/tags\/items\//, 'data/$1/tags/item/')
+      .replace(/^data\/([^/]+)\/tags\/blocks\//, 'data/$1/tags/block/')
+      .replace(/^data\/([^/]+)\/tags\/entity_types\//, 'data/$1/tags/entity_type/')
+      .replace(/^data\/([^/]+)\/tags\/game_events\//, 'data/$1/tags/game_event/')
+  } else {
+    return relPath
+      .replace(/^data\/([^/]+)\/function\//, 'data/$1/functions/')
+      .replace(/^data\/([^/]+)\/loot_table\//, 'data/$1/loot_tables/')
+      .replace(/^data\/([^/]+)\/recipe\//, 'data/$1/recipes/')
+      .replace(/^data\/([^/]+)\/advancement\//, 'data/$1/advancements/')
+      .replace(/^data\/([^/]+)\/predicate\//, 'data/$1/predicates/')
+      .replace(/^data\/([^/]+)\/item_modifier\//, 'data/$1/item_modifiers/')
+      .replace(/^data\/([^/]+)\/structure\//, 'data/$1/structures/')
+      .replace(/^data\/([^/]+)\/tags\/function\//, 'data/$1/tags/functions/')
+      .replace(/^data\/([^/]+)\/tags\/item\//, 'data/$1/tags/items/')
+      .replace(/^data\/([^/]+)\/tags\/block\//, 'data/$1/tags/blocks/')
+      .replace(/^data\/([^/]+)\/tags\/entity_type\//, 'data/$1/tags/entity_types/')
+      .replace(/^data\/([^/]+)\/tags\/game_event\//, 'data/$1/tags/game_events/')
+  }
+}
 
 /**
  * Given a relative path like "data/entries/dialog/day_main.json", extract
@@ -116,7 +247,7 @@ export function getRegistryForPath(rel: string): string | null {
   let bestLen = 0
   for (const { segment } of KNOWN_REGISTRY_SEGMENTS) {
     if (segment.length <= bestLen) continue
-    // Match "segment/file.json" or "segment.json" (segment is the full dir)
+    // Match "segment/file.json", "segment/sub/file.mcfunction", or "segment.json"
     if (rest === segment + '.json' || rest.startsWith(segment + '/')) {
       best = segment
       bestLen = segment.length
@@ -141,7 +272,8 @@ export function getRegistrySkipReason(
   for (const rule of PORT_RULES) {
     if (rule.type !== 'registry' || rule.scope === 'resource_pack') continue
     const ruleSeg = String(rule.match).replace(/\/$/, '')
-    if (ruleSeg !== registry) continue
+    const match = ruleSeg === registry || normalizeRegistry(ruleSeg) === normalizeRegistry(registry)
+    if (!match) continue
     if (!rule.since) continue
 
     if (cmpVer(targetName, rule.since) < 0) {
@@ -720,7 +852,7 @@ function renameEntityPredicateType(
   }
 
   // Predicate files are standalone EntityPredicates
-  if (relPath.includes('/predicate/')) {
+  if (/(?:^|\/)(?:predicate|predicates)\//.test(relPath)) {
     return { data: fixPredicate(data), patches, details }
   }
   return { data: walk(data), patches, details }
@@ -728,15 +860,13 @@ function renameEntityPredicateType(
 
 function fileToResourceId(relPath: string): string | null {
   if (relPath.endsWith('.mcfunction')) {
-    const m = relPath.match(/^data\/([^/]+)\/functions\/(.+)\.mcfunction$/)
+    const m = relPath.match(/^data\/([^/]+)\/(?:function|functions)\/(.+)\.mcfunction$/)
     if (m) return `${m[1]}:${m[2].replace(/\//g, '/')}`
     return null
   }
   if (relPath.endsWith('.json')) {
-    const m = relPath.match(/^data\/([^/]+)\/(loot_tables|advancements|recipes|predicates|item_modifiers|functions|tags\/[^/]+|worldgen\/[^/]+)\/(.+)\.json$/)
+    const m = relPath.match(/^data\/([^/]+)\/(loot_tables?|advancements?|recipes?|predicates?|item_modifiers?|functions?|tags\/[^/]+|worldgen\/[^/]+)\/(.+)\.json$/)
     if (m) return `${m[1]}:${m[3].replace(/\//g, '/')}`
-    const m2 = relPath.match(/^data\/([^/]+)\/(loot_table|advancement|recipe|predicate|item_modifier|function)\/(.+)\.json$/)
-    if (m2) return `${m2[1]}:${m2[3].replace(/\//g, '/')}`
     return null
   }
   return null
@@ -1049,23 +1179,20 @@ export async function fixDatapack(options: FixOptions): Promise<{
   // Process mcfunction files
   for (const file of mcfunction) {
     processed++
-    options.onProgress?.(`Rewriting ${relative(baseDir, file)}`, processed, totalFiles)
     const rel = relative(baseDir, file).replace(/\\/g, '/')
+    const outRel = restructurePath(rel, sourceVer.name, targetVer.name)
+    const pathChanged = outRel !== rel
+    options.onProgress?.(`Rewriting ${outRel}`, processed, totalFiles)
     const content = readFileSync(file, 'utf-8')
     const { result, patches, details } = fixMcfunctionFile(content, rel, rewrites, removals, nbtRewrite)
-    if (patches > 0) {
-      const outPath = join(outputDir, rel)
-      const outDir = dirname(outPath)
-      if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
-      writeFileSync(outPath, result, 'utf-8')
-      results.push({ file: rel, patches, details })
-      totalPatches += patches
-    } else {
-      // Copy unchanged file
-      const outPath = join(outputDir, rel)
-      const outDir = dirname(outPath)
-      if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
-      writeFileSync(outPath, content, 'utf-8')
+    const outPath = join(outputDir, outRel)
+    const outDir = dirname(outPath)
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
+    writeFileSync(outPath, patches > 0 ? result : content, 'utf-8')
+    if (patches > 0 || pathChanged) {
+      const fileDetails = pathChanged ? [`Restructured directory path: ${rel} -> ${outRel}`, ...details] : details
+      results.push({ file: outRel, patches: patches + (pathChanged ? 1 : 0), details: fileDetails })
+      totalPatches += patches + (pathChanged ? 1 : 0)
     }
   }
 
@@ -1085,8 +1212,10 @@ export async function fixDatapack(options: FixOptions): Promise<{
   // Process JSON files (structural + advancement icon + registry fixes)
   for (const file of json) {
     processed++
-    options.onProgress?.(`Fixing ${relative(baseDir, file)}`, processed, totalFiles)
     const rel = relative(baseDir, file).replace(/\\/g, '/')
+    const outRel = restructurePath(rel, sourceVer.name, targetVer.name)
+    const pathChanged = outRel !== rel
+    options.onProgress?.(`Fixing ${outRel}`, processed, totalFiles)
 
     // Skip files whose registry doesn't exist in the target version
     if (registrySkipped.has(rel)) continue
@@ -1100,10 +1229,18 @@ export async function fixDatapack(options: FixOptions): Promise<{
       data = JSON.parse(content)
     } catch {
       // Copy as-is
-      const outPath = join(outputDir, rel)
+      const outPath = join(outputDir, outRel)
       const outDir = dirname(outPath)
       if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
       writeFileSync(outPath, content, 'utf-8')
+      if (pathChanged) {
+        results.push({
+          file: outRel,
+          patches: 1,
+          details: [`Restructured directory path: ${rel} -> ${outRel}`],
+        })
+        totalPatches++
+      }
       continue
     }
 
@@ -1112,8 +1249,8 @@ export async function fixDatapack(options: FixOptions): Promise<{
     const details: string[] = []
 
     // Advancement icon fix (backport)
-    if (!portingForward && cmpVer(targetName, '1.20.5') < 0) {
-      const advResult = fixAdvancementIcon(currentData, targetName, rel)
+    if (!portingForward && cmpVer(targetName, '1.20.5') < 0 && (rel.includes('/advancement') || rel.includes('/advancements'))) {
+      const advResult = fixAdvancementIcon(currentData, targetName, outRel)
       currentData = advResult.data
       patches += advResult.patches
       details.push(...advResult.details)
@@ -1121,15 +1258,15 @@ export async function fixDatapack(options: FixOptions): Promise<{
 
     // Biome precipitation field rename: has_precipitation (1.19.4+) -> precipitation (pre-1.19.4)
     if (!portingForward && rel.includes('/worldgen/biome') && cmpVer(targetName, '1.19.4') < 0) {
-      const fixResult = renameBiomeField(currentData, targetName, rel)
+      const fixResult = renameBiomeField(currentData, targetName, outRel)
       currentData = fixResult.data
       patches += fixResult.patches
       details.push(...fixResult.details)
     }
 
     // Predicate any_of -> alternative rename (backport pre-1.20)
-    if (!portingForward && rel.includes('/predicate') && cmpVer(targetName, '1.20') < 0) {
-      const fixResult = renamePredicateFields(currentData, targetName, rel)
+    if (!portingForward && (rel.includes('/predicate') || rel.includes('/predicates')) && cmpVer(targetName, '1.20') < 0) {
+      const fixResult = renamePredicateFields(currentData, targetName, outRel)
       currentData = fixResult.data
       patches += fixResult.patches
       details.push(...fixResult.details)
@@ -1137,8 +1274,10 @@ export async function fixDatapack(options: FixOptions): Promise<{
 
     // Entity predicate type -> entity_type rename (forward to 26.2+)
     if (portingForward && cmpVer(targetName, '26.2') >= 0 &&
-        (rel.includes('/advancement/') || rel.includes('/loot_table/') || rel.includes('/predicate/'))) {
-      const fixResult = renameEntityPredicateType(currentData, targetName, rel)
+        (rel.includes('/advancement') || rel.includes('/advancements') ||
+         rel.includes('/loot_table') || rel.includes('/loot_tables') ||
+         rel.includes('/predicate') || rel.includes('/predicates'))) {
+      const fixResult = renameEntityPredicateType(currentData, targetName, outRel)
       currentData = fixResult.data
       patches += fixResult.patches
       details.push(...fixResult.details)
@@ -1158,7 +1297,7 @@ export async function fixDatapack(options: FixOptions): Promise<{
           const re = new RegExp(`"(?:[\\w-]+:)?${searchStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g')
           if (re.test(contentStr)) {
             const fixed = contentStr.replace(re, `"## FIXED(${rule.match} not available in ${targetName})/`)
-            try { currentData = JSON.parse(fixed); patches++; details.push(`${rel}: Replaced ${rule.match} references`) } catch { }
+            try { currentData = JSON.parse(fixed); patches++; details.push(`${outRel}: Replaced ${rule.match} references`) } catch { }
           }
         }
       }
@@ -1166,30 +1305,67 @@ export async function fixDatapack(options: FixOptions): Promise<{
 
     // Structural mcdoc fix: remove fields invalid for target version
     if (mcdocTable) {
-      const structResult = fixMcdocFileData(currentData, rel, targetName, mcdocTable)
+      const structResult = fixMcdocFileData(currentData, outRel, targetName, mcdocTable)
       if (structResult.removed.length > 0) {
         currentData = structResult.data
         patches += structResult.removed.length
         for (const r of structResult.removed) {
-          details.push(`${rel}: ${r}`)
+          details.push(`${outRel}: ${r}`)
         }
       }
     }
 
-    if (patches > 0) {
-      const outPath = join(outputDir, rel)
+    if (patches > 0 || pathChanged) {
+      const outPath = join(outputDir, outRel)
       const outDir = dirname(outPath)
       if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
-      writeFileSync(outPath, JSON.stringify(currentData, null, 2) + '\n', 'utf-8')
-      results.push({ file: rel, patches, details })
-      totalPatches += patches
+      writeFileSync(outPath, patches > 0 ? JSON.stringify(currentData, null, 2) + '\n' : content, 'utf-8')
+      const fileDetails = pathChanged ? [`Restructured directory path: ${rel} -> ${outRel}`, ...details] : details
+      results.push({ file: outRel, patches: patches + (pathChanged ? 1 : 0), details: fileDetails })
+      totalPatches += patches + (pathChanged ? 1 : 0)
     } else {
       // Copy unchanged
-      const outPath = join(outputDir, rel)
+      const outPath = join(outputDir, outRel)
       const outDir = dirname(outPath)
       if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
       writeFileSync(outPath, content, 'utf-8')
     }
+  }
+
+  // Copy non-JSON / non-mcfunction files in data/
+  const processedDataFiles = new Set<string>()
+  for (const f of mcfunction) processedDataFiles.add(f)
+  for (const f of json) processedDataFiles.add(f)
+
+  const copyRemainingData = (d: string) => {
+    let entries: string[]
+    try { entries = readdirSync(d) } catch { return }
+    for (const entry of entries) {
+      const full = join(d, entry)
+      let s: any
+      try { s = statSync(full) } catch { continue }
+      if (s.isDirectory()) {
+        copyRemainingData(full)
+      } else if (!processedDataFiles.has(full)) {
+        const rel = relative(baseDir, full).replace(/\\/g, '/')
+        const outRel = restructurePath(rel, sourceVer.name, targetVer.name)
+        const outPath = join(outputDir, outRel)
+        const outDir = dirname(outPath)
+        if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
+        writeFileSync(outPath, readFileSync(full))
+        if (outRel !== rel) {
+          results.push({
+            file: outRel,
+            patches: 1,
+            details: [`Restructured directory path: ${rel} -> ${outRel}`],
+          })
+          totalPatches++
+        }
+      }
+    }
+  }
+  if (existsSync(dataDir)) {
+    copyRemainingData(dataDir)
   }
 
   options.onProgress?.('Updating pack.mcmeta...')

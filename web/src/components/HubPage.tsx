@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
+import type { McmetaVersion } from '../api'
 
-/** Versions the engine covers. Static for now — the hub renders before
- *  fetchVersions() has anything useful to say, and this string is the
- *  engine's declared range rather than a live count. */
+/** Versions the engine covers. Static default — can be overridden by live versions list. */
 const COVERAGE_FROM = '1.13'
-const COVERAGE_TO = '26.2'
+const COVERAGE_TO = '26.3'
 
 type CaseStatus = 'open' | 'sealed'
 
@@ -56,10 +55,12 @@ function ToolCase({ caseNo, status, title, description, docket, action, seal }: 
 
 interface HubPageProps {
   onOpenDatapackEditor: () => void
+  versions?: McmetaVersion[]
 }
 
-export default function HubPage({ onOpenDatapackEditor }: HubPageProps) {
-  const coverage = `${COVERAGE_FROM} \u2192 ${COVERAGE_TO}`
+export default function HubPage({ onOpenDatapackEditor, versions }: HubPageProps) {
+  const latestRelease = versions?.find(v => v.type === 'release')?.name ?? versions?.[0]?.name ?? COVERAGE_TO
+  const coverage = `${COVERAGE_FROM} \u2192 ${latestRelease}`
 
   return (
     <div className="hub-root">
@@ -104,7 +105,7 @@ export default function HubPage({ onOpenDatapackEditor }: HubPageProps) {
               <span className="ro-val">
                 {COVERAGE_FROM}
                 <span className="ro-arrow"> {'\u2192'} </span>
-                {COVERAGE_TO}
+                {latestRelease}
               </span>
             </div>
             <div className="readout-cell">

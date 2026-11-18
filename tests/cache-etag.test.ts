@@ -15,7 +15,7 @@ import type { McmetaVersion } from '../src/types.js'
 // other keys (e.g. mcdoc_symbols.json used by the mcdoc integration tests).
 // ---------------------------------------------------------------------------
 
-const CACHE_DIR = join(tmpdir(), 'dpcheck-cache')
+const CACHE_DIR = join(tmpdir(), 'minex-datapack-checker-cache')
 const VERSIONS_FILE = join(CACHE_DIR, 'mcje_versions.json')
 const VERSIONS_ETAG = join(CACHE_DIR, 'mcje_versions.etag')
 

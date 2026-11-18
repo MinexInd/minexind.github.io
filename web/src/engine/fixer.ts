@@ -93,13 +93,144 @@ export { CMD_REWRITES, type CmdRewrite }
 // ---------------------------------------------------------------------------
 
 /**
- * Derive the set of known datapack registry path segments from PORT_RULES.
- * Each entry maps a directory segment (e.g. "dialog", "worldgen/biome") to
+ * Core datapack registry path segments (singular in 1.21+, plural pre-1.21).
+ */
+const CORE_REGISTRY_SEGMENTS: Array<{ segment: string; since: string }> = [
+  { segment: 'function', since: '1.21' },
+  { segment: 'functions', since: '1.13' },
+  { segment: 'loot_table', since: '1.21' },
+  { segment: 'loot_tables', since: '1.13' },
+  { segment: 'recipe', since: '1.21' },
+  { segment: 'recipes', since: '1.13' },
+  { segment: 'advancement', since: '1.21' },
+  { segment: 'advancements', since: '1.13' },
+  { segment: 'predicate', since: '1.21' },
+  { segment: 'predicates', since: '1.15' },
+  { segment: 'item_modifier', since: '1.21' },
+  { segment: 'item_modifiers', since: '1.17' },
+  { segment: 'structure', since: '1.21' },
+  { segment: 'structures', since: '1.13' },
+  { segment: 'tags/function', since: '1.21' },
+  { segment: 'tags/functions', since: '1.13' },
+  { segment: 'tags/item', since: '1.21' },
+  { segment: 'tags/items', since: '1.13' },
+  { segment: 'tags/block', since: '1.21' },
+  { segment: 'tags/blocks', since: '1.13' },
+  { segment: 'tags/entity_type', since: '1.21' },
+  { segment: 'tags/entity_types', since: '1.13' },
+  { segment: 'tags/game_event', since: '1.21' },
+  { segment: 'tags/game_events', since: '1.19' },
+  { segment: 'tags', since: '1.13' },
+]
+
+/**
+ * Derive the set of known datapack registry path segments from PORT_RULES
+ * and core registry definitions.
+ * Each entry maps a directory segment (e.g. "dialog", "worldgen/biome", "function") to
  * the version from which it exists.
  */
-const KNOWN_REGISTRY_SEGMENTS: Array<{ segment: string; since: string }> = PORT_RULES
-  .filter(r => r.type === 'registry' && r.scope === 'datapack')
-  .map(r => ({ segment: String(r.match).replace(/\/$/, ''), since: r.since! }))
+const SEEN_SEGMENTS = new Set<string>()
+const KNOWN_REGISTRY_SEGMENTS: Array<{ segment: string; since: string }> = []
+for (const entry of [
+  ...CORE_REGISTRY_SEGMENTS,
+  ...PORT_RULES
+    .filter(r => r.type === 'registry' && r.scope === 'datapack')
+    .map(r => ({ segment: String(r.match).replace(/\/$/, ''), since: r.since! })),
+]) {
+  if (!SEEN_SEGMENTS.has(entry.segment)) {
+    SEEN_SEGMENTS.add(entry.segment)
+    KNOWN_REGISTRY_SEGMENTS.push(entry)
+  }
+}
+
+const PLURAL_TO_SINGULAR: Record<string, string> = {
+  functions: 'function',
+  loot_tables: 'loot_table',
+  recipes: 'recipe',
+  advancements: 'advancement',
+  predicates: 'predicate',
+  item_modifiers: 'item_modifier',
+  structures: 'structure',
+}
+
+const SINGULAR_TO_PLURAL: Record<string, string> = {
+  function: 'functions',
+  loot_table: 'loot_tables',
+  recipe: 'recipes',
+  advancement: 'advancements',
+  predicate: 'predicates',
+  item_modifier: 'item_modifiers',
+  structure: 'structures',
+}
+
+function normalizeRegistry(reg: string): string {
+  return PLURAL_TO_SINGULAR[reg] ?? reg
+}
+
+/**
+ * Restructure directory paths across the 1.21 boundary.
+ *
+ * In 1.21, datapack directories were renamed from plural to singular:
+ *   functions/ -> function/
+ *   loot_tables/ -> loot_table/
+ *   recipes/ -> recipe/
+ *   advancements/ -> advancement/
+ *   predicates/ -> predicate/
+ *   item_modifiers/ -> item_modifier/
+ *   structures/ -> structure/
+ *   tags/functions/ -> tags/function/
+ *   tags/items/ -> tags/item/
+ *   tags/blocks/ -> tags/block/
+ *   tags/entity_types/ -> tags/entity_type/
+ *   tags/game_events/ -> tags/game_event/
+ *
+ * Forward port across 1.21 (source < 1.21, target >= 1.21): plural -> singular.
+ * Backward port across 1.21 (source >= 1.21, target < 1.21): singular -> plural.
+ */
+export function restructurePath(
+  relPath: string,
+  sourceVersion: string,
+  targetVersion: string,
+): string {
+  if (!sourceVersion || !targetVersion) return relPath
+
+  const crossingForward = cmpVer(sourceVersion, '1.21') < 0 && cmpVer(targetVersion, '1.21') >= 0
+  const crossingBackward = cmpVer(sourceVersion, '1.21') >= 0 && cmpVer(targetVersion, '1.21') < 0
+
+  if (!crossingForward && !crossingBackward) {
+    return relPath
+  }
+
+  if (crossingForward) {
+    return relPath
+      .replace(/^data\/([^/]+)\/functions\//, 'data/$1/function/')
+      .replace(/^data\/([^/]+)\/loot_tables\//, 'data/$1/loot_table/')
+      .replace(/^data\/([^/]+)\/recipes\//, 'data/$1/recipe/')
+      .replace(/^data\/([^/]+)\/advancements\//, 'data/$1/advancement/')
+      .replace(/^data\/([^/]+)\/predicates\//, 'data/$1/predicate/')
+      .replace(/^data\/([^/]+)\/item_modifiers\//, 'data/$1/item_modifier/')
+      .replace(/^data\/([^/]+)\/structures\//, 'data/$1/structure/')
+      .replace(/^data\/([^/]+)\/tags\/functions\//, 'data/$1/tags/function/')
+      .replace(/^data\/([^/]+)\/tags\/items\//, 'data/$1/tags/item/')
+      .replace(/^data\/([^/]+)\/tags\/blocks\//, 'data/$1/tags/block/')
+      .replace(/^data\/([^/]+)\/tags\/entity_types\//, 'data/$1/tags/entity_type/')
+      .replace(/^data\/([^/]+)\/tags\/game_events\//, 'data/$1/tags/game_event/')
+  } else {
+    return relPath
+      .replace(/^data\/([^/]+)\/function\//, 'data/$1/functions/')
+      .replace(/^data\/([^/]+)\/loot_table\//, 'data/$1/loot_tables/')
+      .replace(/^data\/([^/]+)\/recipe\//, 'data/$1/recipes/')
+      .replace(/^data\/([^/]+)\/advancement\//, 'data/$1/advancements/')
+      .replace(/^data\/([^/]+)\/predicate\//, 'data/$1/predicates/')
+      .replace(/^data\/([^/]+)\/item_modifier\//, 'data/$1/item_modifiers/')
+      .replace(/^data\/([^/]+)\/structure\//, 'data/$1/structures/')
+      .replace(/^data\/([^/]+)\/tags\/function\//, 'data/$1/tags/functions/')
+      .replace(/^data\/([^/]+)\/tags\/item\//, 'data/$1/tags/items/')
+      .replace(/^data\/([^/]+)\/tags\/block\//, 'data/$1/tags/blocks/')
+      .replace(/^data\/([^/]+)\/tags\/entity_type\//, 'data/$1/tags/entity_types/')
+      .replace(/^data\/([^/]+)\/tags\/game_event\//, 'data/$1/tags/game_events/')
+  }
+}
 
 /**
  * Given a relative path like "data/entries/dialog/day_main.json", extract
@@ -118,7 +249,7 @@ export function getRegistryForPath(rel: string): string | null {
   let bestLen = 0
   for (const { segment } of KNOWN_REGISTRY_SEGMENTS) {
     if (segment.length <= bestLen) continue
-    // Match "segment/file.json" or "segment.json" (segment is the full dir)
+    // Match "segment/file.json", "segment/sub/file.mcfunction", or "segment.json"
     if (rest === segment + '.json' || rest.startsWith(segment + '/')) {
       best = segment
       bestLen = segment.length
@@ -143,7 +274,8 @@ export function getRegistrySkipReason(
   for (const rule of PORT_RULES) {
     if (rule.type !== 'registry' || rule.scope === 'resource_pack') continue
     const ruleSeg = String(rule.match).replace(/\/$/, '')
-    if (ruleSeg !== registry) continue
+    const match = ruleSeg === registry || normalizeRegistry(ruleSeg) === normalizeRegistry(registry)
+    if (!match) continue
     if (!rule.since) continue
 
     if (cmpVer(targetName, rule.since) < 0) {
@@ -604,7 +736,7 @@ function renameEntityPredicateType(
   }
 
   // Predicate files are standalone EntityPredicates
-  if (relPath.includes('/predicate/')) {
+  if (/(?:^|\/)(?:predicate|predicates)\//.test(relPath)) {
     return { data: fixPredicate(data), patches, details }
   }
   return { data: walk(data), patches, details }
@@ -612,15 +744,13 @@ function renameEntityPredicateType(
 
 function fileToResourceId(relPath: string): string | null {
   if (relPath.endsWith('.mcfunction')) {
-    const m = relPath.match(/^data\/([^/]+)\/functions\/(.+)\.mcfunction$/)
+    const m = relPath.match(/^data\/([^/]+)\/(?:function|functions)\/(.+)\.mcfunction$/)
     if (m) return `${m[1]}:${m[2].replace(/\//g, '/')}`
     return null
   }
   if (relPath.endsWith('.json')) {
-    const m = relPath.match(/^data\/([^/]+)\/(loot_tables|advancements|recipes|predicates|item_modifiers|functions|tags\/[^/]+|worldgen\/[^/]+)\/(.+)\.json$/)
+    const m = relPath.match(/^data\/([^/]+)\/(loot_tables?|advancements?|recipes?|predicates?|item_modifiers?|functions?|tags\/[^/]+|worldgen\/[^/]+)\/(.+)\.json$/)
     if (m) return `${m[1]}:${m[3].replace(/\//g, '/')}`
-    const m2 = relPath.match(/^data\/([^/]+)\/(loot_table|advancement|recipe|predicate|item_modifier|function)\/(.+)\.json$/)
-    if (m2) return `${m2[1]}:${m2[3].replace(/\//g, '/')}`
     return null
   }
   return null
@@ -905,18 +1035,34 @@ export async function fixDatapack(options: FixOptions): Promise<{
   const errors: string[] = []
   const output: PackFileMap = {}
 
+  // Files with both original and restructured paths available for plan reference scanning
+  const filesForPlan: Record<string, string> = { ...files }
+  const planMcfunction = mcfunction.map(f => {
+    const rf = restructurePath(f, sourceVer.name, targetVer.name)
+    filesForPlan[rf] = files[f]
+    return rf
+  })
+  const planJson = json.map(f => {
+    const rf = restructurePath(f, sourceVer.name, targetVer.name)
+    filesForPlan[rf] = files[f]
+    return rf
+  })
+
   // Generate porting plan
-  const plan = generateFixPlan(sourceVer, targetVer, rewrites, removals, mcfunction, json, files)
+  const plan = generateFixPlan(sourceVer, targetVer, rewrites, removals, planMcfunction, planJson, filesForPlan)
 
   // Process mcfunction files
   for (const file of mcfunction) {
     const content = files[file]
-    if (!content) continue
+    if (content === undefined) continue
     const { result, patches, details } = fixMcfunctionFile(content, file, rewrites, removals, nbtRewrite)
-    output[file] = result
-    if (patches > 0) {
-      results.push({ file, patches, details })
-      totalPatches += patches
+    const outPath = restructurePath(file, sourceVer.name, targetVer.name)
+    const pathChanged = outPath !== file
+    output[outPath] = result
+    if (patches > 0 || pathChanged) {
+      const fileDetails = pathChanged ? [`Restructured directory path: ${file} -> ${outPath}`, ...details] : details
+      results.push({ file: outPath, patches: patches + (pathChanged ? 1 : 0), details: fileDetails })
+      totalPatches += patches + (pathChanged ? 1 : 0)
     }
   }
 
@@ -932,16 +1078,27 @@ export async function fixDatapack(options: FixOptions): Promise<{
   // Process JSON files
   for (const file of json) {
     const content = files[file]
-    if (!content) continue
+    if (content === undefined) continue
 
     // Skip files whose registry doesn't exist in the target version
     if (registrySkipped.has(file)) continue
+
+    const outPath = restructurePath(file, sourceVer.name, targetVer.name)
+    const pathChanged = outPath !== file
 
     let data: any
     try {
       data = JSON.parse(content)
     } catch {
-      output[file] = content
+      output[outPath] = content
+      if (pathChanged) {
+        results.push({
+          file: outPath,
+          patches: 1,
+          details: [`Restructured directory path: ${file} -> ${outPath}`],
+        })
+        totalPatches++
+      }
       continue
     }
 
@@ -950,8 +1107,8 @@ export async function fixDatapack(options: FixOptions): Promise<{
     const details: string[] = []
 
     // Advancement icon fix (backport)
-    if (!portingForward && cmpVer(targetName, '1.20.5') < 0) {
-      const advResult = fixAdvancementIcon(currentData, targetName, file)
+    if (!portingForward && cmpVer(targetName, '1.20.5') < 0 && (file.includes('/advancement') || file.includes('/advancements'))) {
+      const advResult = fixAdvancementIcon(currentData, targetName, outPath)
       currentData = advResult.data
       patches += advResult.patches
       details.push(...advResult.details)
@@ -959,15 +1116,15 @@ export async function fixDatapack(options: FixOptions): Promise<{
 
     // Biome precipitation field rename: has_precipitation (1.19.4+) -> precipitation (pre-1.19.4)
     if (!portingForward && file.includes('/worldgen/biome') && cmpVer(targetName, '1.19.4') < 0) {
-      const fixResult = renameBiomeField(currentData, targetName, file)
+      const fixResult = renameBiomeField(currentData, targetName, outPath)
       currentData = fixResult.data
       patches += fixResult.patches
       details.push(...fixResult.details)
     }
 
     // Predicate any_of -> alternative rename (backport pre-1.20)
-    if (!portingForward && file.includes('/predicate') && cmpVer(targetName, '1.20') < 0) {
-      const fixResult = renamePredicateFields(currentData, targetName, file)
+    if (!portingForward && (file.includes('/predicate') || file.includes('/predicates')) && cmpVer(targetName, '1.20') < 0) {
+      const fixResult = renamePredicateFields(currentData, targetName, outPath)
       currentData = fixResult.data
       patches += fixResult.patches
       details.push(...fixResult.details)
@@ -975,8 +1132,10 @@ export async function fixDatapack(options: FixOptions): Promise<{
 
     // Entity predicate type -> entity_type rename (forward to 26.2+)
     if (portingForward && cmpVer(targetName, '26.2') >= 0 &&
-        (file.includes('/advancement/') || file.includes('/loot_table/') || file.includes('/predicate/'))) {
-      const fixResult = renameEntityPredicateType(currentData, targetName, file)
+        (file.includes('/advancement') || file.includes('/advancements') ||
+         file.includes('/loot_table') || file.includes('/loot_tables') ||
+         file.includes('/predicate') || file.includes('/predicates'))) {
+      const fixResult = renameEntityPredicateType(currentData, targetName, outPath)
       currentData = fixResult.data
       patches += fixResult.patches
       details.push(...fixResult.details)
@@ -996,7 +1155,7 @@ export async function fixDatapack(options: FixOptions): Promise<{
           const re = new RegExp(`"(?:[\\w-]+:)?${searchStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g')
           if (re.test(contentStr)) {
             const fixed = contentStr.replace(re, `"## FIXED(${rule.match} not available in ${targetName})/`)
-            try { currentData = JSON.parse(fixed); patches++; details.push(`${file}: Replaced ${rule.match} references`) } catch { }
+            try { currentData = JSON.parse(fixed); patches++; details.push(`${outPath}: Replaced ${rule.match} references`) } catch { }
           }
         }
       }
@@ -1004,22 +1163,23 @@ export async function fixDatapack(options: FixOptions): Promise<{
 
     // Structural mcdoc fix
     if (mcdocTable) {
-      const structResult = fixMcdocFileData(currentData, file, targetName, mcdocTable)
+      const structResult = fixMcdocFileData(currentData, outPath, targetName, mcdocTable)
       if (structResult.removed.length > 0) {
         currentData = structResult.data
         patches += structResult.removed.length
         for (const r of structResult.removed) {
-          details.push(`${file}: ${r}`)
+          details.push(`${outPath}: ${r}`)
         }
       }
     }
 
-    if (patches > 0) {
-      output[file] = JSON.stringify(currentData, null, 2) + '\n'
-      results.push({ file, patches, details })
-      totalPatches += patches
+    if (patches > 0 || pathChanged) {
+      output[outPath] = patches > 0 ? JSON.stringify(currentData, null, 2) + '\n' : content
+      const fileDetails = pathChanged ? [`Restructured directory path: ${file} -> ${outPath}`, ...details] : details
+      results.push({ file: outPath, patches: patches + (pathChanged ? 1 : 0), details: fileDetails })
+      totalPatches += patches + (pathChanged ? 1 : 0)
     } else {
-      output[file] = content
+      output[outPath] = content
     }
   }
 
@@ -1052,11 +1212,20 @@ export async function fixDatapack(options: FixOptions): Promise<{
     errors.push(`pack.mcmeta: ${e.message}`)
   }
 
-  // Copy remaining root files
+  // Copy remaining root and data files (non-json/non-mcfunction in data/ and all root files)
   for (const path of Object.keys(files)) {
-    if (path === 'pack.mcmeta' || path.startsWith('data/')) continue
-    if (!(path in output)) {
-      output[path] = files[path]
+    if (path === 'pack.mcmeta') continue
+    const outPath = path.startsWith('data/') ? restructurePath(path, sourceVer.name, targetVer.name) : path
+    if (!(outPath in output)) {
+      output[outPath] = files[path]
+      if (outPath !== path) {
+        results.push({
+          file: outPath,
+          patches: 1,
+          details: [`Restructured directory path: ${path} -> ${outPath}`],
+        })
+        totalPatches++
+      }
     }
   }
 
@@ -1074,7 +1243,7 @@ export async function fixResourcePack(options: FixOptions): Promise<{
   plan: FixPlan
   summary: FixSummary
 }> {
-  const { files, targetVersion } = options
+  const { files, targetVersion, sourceVersion: explicitSource } = options
   const allVersions = await fetchVersions()
   const targetVer = allVersions.find(v => v.name === targetVersion || v.id === targetVersion)
   if (!targetVer) {
@@ -1086,7 +1255,36 @@ export async function fixResourcePack(options: FixOptions): Promise<{
     return { files, results: [], plan, summary: { filesFixed: 0, totalPatches: 0, errors: [`Target version '${targetVersion}' not found`] } }
   }
 
+  let sourceVer: McmetaVersion | null = null
+  if (explicitSource) {
+    sourceVer = allVersions.find(v => v.name === explicitSource || v.id === explicitSource) ?? null
+  }
+  if (!sourceVer) {
+    try {
+      const pmContent = files['pack.mcmeta']
+      if (pmContent) {
+        const { supported_formats, min_format, max_format } = readPackMcmetaFromString(pmContent)
+        if (min_format) {
+          const maxMajor = max_format ? max_format[0] : Math.max(...allVersions.map(v => v.resource_pack_version ?? 0))
+          const maxMinor = max_format ? max_format[1] : 0
+          sourceVer = allVersions.find(v => v.resource_pack_version === maxMajor && (v.resource_pack_version_minor ?? 0) === maxMinor)
+            ?? allVersions.find(v => v.resource_pack_version === maxMajor)
+            ?? null
+        } else if (supported_formats) {
+          sourceVer = allVersions.find(v => v.resource_pack_version === supported_formats.max) ?? null
+        } else {
+          const parsed = JSON.parse(pmContent)
+          if (parsed.pack?.pack_format) {
+            sourceVer = allVersions.find(v => v.resource_pack_version === parsed.pack.pack_format) ?? null
+          }
+        }
+      }
+    } catch { }
+  }
+
   const targetName = targetVer.name
+  const sourceName = sourceVer?.name ?? ''
+  const portingForward = sourceVer ? (targetVer.data_version >= sourceVer.data_version) : true
 
   let mcdocTable: any = null
   try {
@@ -1180,9 +1378,9 @@ export async function fixResourcePack(options: FixOptions): Promise<{
     jsonFixesList.push({ type: 'mcdoc_structural', count: results.filter(r => r.details.some(d => d.includes('mcdoc'))).length, files: results.map(r => r.file) })
   }
   const plan: FixPlan = {
-    sourceVersion: '',
+    sourceVersion: sourceName,
     targetVersion: targetName,
-    direction: 'forward',
+    direction: portingForward ? 'forward' : 'backward',
     rewrites: [],
     jsonFixes: jsonFixesList,
     manualAttention: [],

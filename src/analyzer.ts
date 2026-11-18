@@ -78,18 +78,18 @@ export interface PortingPlan {
 }
 
 const PATH_TYPE_MAP: [RegExp, string][] = [
-  [/^data\/[^/]+\/functions\//, 'function'],
-  [/^data\/[^/]+\/tags\/functions\//, 'tag/function'],
-  [/^data\/[^/]+\/tags\/blocks\//, 'tag/block'],
-  [/^data\/[^/]+\/tags\/items\//, 'tag/item'],
-  [/^data\/[^/]+\/tags\/entity_types\//, 'tag/entity_type'],
-  [/^data\/[^/]+\/tags\/game_events\//, 'tag/game_event'],
-  [/^data\/[^/]+\/tags\//, 'tag'],
-  [/^data\/[^/]+\/advancements\//, 'advancement'],
-  [/^data\/[^/]+\/predicates\//, 'predicate'],
-  [/^data\/[^/]+\/item_modifiers\//, 'item_modifier'],
-  [/^data\/[^/]+\/loot_tables\//, 'loot_table'],
-  [/^data\/[^/]+\/recipes\//, 'recipe'],
+  [/^data\/[^/]+\/(?:function|functions)\//, 'function'],
+  [/^data\/[^/]+\/tags?\/(?:function|functions)\//, 'tag/function'],
+  [/^data\/[^/]+\/tags?\/(?:block|blocks)\//, 'tag/block'],
+  [/^data\/[^/]+\/tags?\/(?:item|items)\//, 'tag/item'],
+  [/^data\/[^/]+\/tags?\/(?:entity_type|entity_types)\//, 'tag/entity_type'],
+  [/^data\/[^/]+\/tags?\/(?:game_event|game_events)\//, 'tag/game_event'],
+  [/^data\/[^/]+\/tags?\//, 'tag'],
+  [/^data\/[^/]+\/(?:advancement|advancements)\//, 'advancement'],
+  [/^data\/[^/]+\/(?:predicate|predicates)\//, 'predicate'],
+  [/^data\/[^/]+\/(?:item_modifier|item_modifiers)\//, 'item_modifier'],
+  [/^data\/[^/]+\/(?:loot_table|loot_tables)\//, 'loot_table'],
+  [/^data\/[^/]+\/(?:recipe|recipes)\//, 'recipe'],
   [/^data\/[^/]+\/worldgen\/biome\//, 'worldgen/biome'],
   [/^data\/[^/]+\/worldgen\/configured_feature\//, 'worldgen/configured_feature'],
   [/^data\/[^/]+\/worldgen\/placed_feature\//, 'worldgen/placed_feature'],
@@ -102,9 +102,9 @@ const PATH_TYPE_MAP: [RegExp, string][] = [
   [/^data\/[^/]+\/worldgen\/world_preset\//, 'worldgen/world_preset'],
   [/^data\/[^/]+\/worldgen\/noise_router\//, 'worldgen/noise_router'],
   [/^data\/[^/]+\/worldgen\//, 'worldgen'],
-  [/^assets\/[^/]+\/models\//, 'model'],
-  [/^assets\/[^/]+\/textures\//, 'texture'],
-  [/^assets\/[^/]+\/blockstates\//, 'blockstate'],
+  [/^assets\/[^/]+\/(?:models|model)\//, 'model'],
+  [/^assets\/[^/]+\/(?:textures|texture)\//, 'texture'],
+  [/^assets\/[^/]+\/(?:blockstates|blockstate)\//, 'blockstate'],
 ]
 
 function detectResourceType(relPath: string): string | null {
@@ -125,41 +125,44 @@ function extractNamespaceAndName(relPath: string, type: string): { namespace: st
 
   let nameParts: string[]
   if (type === 'function') {
-    const funcIdx = parts.indexOf('functions', base)
-    nameParts = parts.slice(funcIdx + 1)
+    const funcIdx = parts.findIndex((p, i) => i > base && (p === 'functions' || p === 'function'))
+    nameParts = funcIdx >= 0 ? parts.slice(funcIdx + 1) : parts.slice(base + 2)
   } else if (type.startsWith('tag/')) {
-    const tagIdx = parts.indexOf('tags', base)
-    const subIdx = tagIdx + 2
+    const tagIdx = parts.findIndex((p, i) => i > base && (p === 'tags' || p === 'tag'))
+    const subIdx = tagIdx >= 0 ? tagIdx + 2 : base + 3
     nameParts = parts.slice(subIdx)
+  } else if (type === 'tag') {
+    const tagIdx = parts.findIndex((p, i) => i > base && (p === 'tags' || p === 'tag'))
+    nameParts = tagIdx >= 0 ? parts.slice(tagIdx + 1) : parts.slice(base + 2)
   } else if (type === 'recipe') {
-    const recipesIdx = parts.indexOf('recipes', base)
-    nameParts = parts.slice(recipesIdx + 1)
+    const recipesIdx = parts.findIndex((p, i) => i > base && (p === 'recipes' || p === 'recipe'))
+    nameParts = recipesIdx >= 0 ? parts.slice(recipesIdx + 1) : parts.slice(base + 2)
   } else if (type === 'advancement') {
-    const advIdx = parts.indexOf('advancements', base)
-    nameParts = parts.slice(advIdx + 1)
+    const advIdx = parts.findIndex((p, i) => i > base && (p === 'advancements' || p === 'advancement'))
+    nameParts = advIdx >= 0 ? parts.slice(advIdx + 1) : parts.slice(base + 2)
   } else if (type === 'predicate') {
-    const predIdx = parts.indexOf('predicates', base)
-    nameParts = parts.slice(predIdx + 1)
+    const predIdx = parts.findIndex((p, i) => i > base && (p === 'predicates' || p === 'predicate'))
+    nameParts = predIdx >= 0 ? parts.slice(predIdx + 1) : parts.slice(base + 2)
   } else if (type === 'item_modifier') {
-    const modIdx = parts.indexOf('item_modifiers', base)
-    nameParts = parts.slice(modIdx + 1)
+    const modIdx = parts.findIndex((p, i) => i > base && (p === 'item_modifiers' || p === 'item_modifier'))
+    nameParts = modIdx >= 0 ? parts.slice(modIdx + 1) : parts.slice(base + 2)
   } else if (type === 'loot_table') {
-    const ltIdx = parts.indexOf('loot_tables', base)
-    nameParts = parts.slice(ltIdx + 1)
+    const ltIdx = parts.findIndex((p, i) => i > base && (p === 'loot_tables' || p === 'loot_table'))
+    nameParts = ltIdx >= 0 ? parts.slice(ltIdx + 1) : parts.slice(base + 2)
   } else if (type.startsWith('worldgen/')) {
     const worldIdx = parts.indexOf('worldgen', base)
     const subType = type.split('/')[1]
     const typeIdx = parts.indexOf(subType, worldIdx)
-    nameParts = parts.slice(typeIdx + 1)
+    nameParts = typeIdx >= 0 ? parts.slice(typeIdx + 1) : parts.slice(worldIdx + 2)
   } else if (type === 'model') {
-    const modelsIdx = parts.indexOf('models', base)
-    nameParts = parts.slice(modelsIdx + 1)
+    const modelsIdx = parts.findIndex((p, i) => i > base && (p === 'models' || p === 'model'))
+    nameParts = modelsIdx >= 0 ? parts.slice(modelsIdx + 1) : parts.slice(base + 2)
   } else if (type === 'texture') {
-    const texIdx = parts.indexOf('textures', base)
-    nameParts = parts.slice(texIdx + 1)
+    const texIdx = parts.findIndex((p, i) => i > base && (p === 'textures' || p === 'texture'))
+    nameParts = texIdx >= 0 ? parts.slice(texIdx + 1) : parts.slice(base + 2)
   } else if (type === 'blockstate') {
-    const bsIdx = parts.indexOf('blockstates', base)
-    nameParts = parts.slice(bsIdx + 1)
+    const bsIdx = parts.findIndex((p, i) => i > base && (p === 'blockstates' || p === 'blockstate'))
+    nameParts = bsIdx >= 0 ? parts.slice(bsIdx + 1) : parts.slice(base + 2)
   } else {
     nameParts = parts.slice(base + 2)
   }

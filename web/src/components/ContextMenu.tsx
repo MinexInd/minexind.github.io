@@ -17,6 +17,7 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, onClose, onAction, items }: ContextMenuProps) {
   useEffect(() => {
+    if (!items || items.length === 0) return
     const handleClick = () => onClose()
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -27,12 +28,19 @@ export function ContextMenu({ x, y, onClose, onAction, items }: ContextMenuProps
       document.removeEventListener('click', handleClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [onClose])
+  }, [onClose, items])
+
+  if (!items || items.length === 0) {
+    return null
+  }
 
   // Adjust position to stay within viewport
+  const innerWidth = typeof window !== 'undefined' ? window.innerWidth : 1024
+  const innerHeight = typeof window !== 'undefined' ? window.innerHeight : 768
+
   const menuStyle: React.CSSProperties = {
-    left: Math.min(x, window.innerWidth - 200),
-    top: Math.min(y, window.innerHeight - items.length * 32),
+    left: Math.min(x, innerWidth - 200),
+    top: Math.min(y, innerHeight - items.length * 32),
   }
 
   return (

@@ -99,8 +99,8 @@ export function readMcmeta(content: string): McmetaParseResult {
   if (typeof descRaw === 'string') {
     description = descRaw
   } else if (descRaw !== undefined && descRaw !== null) {
-    // JSON text component object — store as object for the form
-    description = descRaw as Record<string, unknown>
+    // JSON text component object — serialize to JSON string
+    description = JSON.stringify(descRaw)
   } else {
     // undefined or null - keep as empty string
     description = ''
@@ -161,8 +161,19 @@ export function writeMcmeta(raw: unknown, state: McmetaFormState): string {
   const pack = data.pack as Record<string, unknown>
 
   // Always write description (string or JSON text-component object).
-  if (typeof state.description === 'object') {
+  if (typeof state.description === 'object' && state.description !== null) {
     pack.description = state.description
+  } else if (typeof state.description === 'string') {
+    try {
+      const parsed = JSON.parse(state.description)
+      if (typeof parsed === 'object' && parsed !== null) {
+        pack.description = parsed
+      } else {
+        pack.description = state.description
+      }
+    } catch {
+      pack.description = state.description
+    }
   } else {
     pack.description = state.description
   }
@@ -186,10 +197,7 @@ export function writeMcmeta(raw: unknown, state: McmetaFormState): string {
       delete pack.supported_formats
     } else {
       const { min, max } = state.supported
-      // A single version is written as a bare integer; a range is written as an
-      // inclusive object. A bare array [min, max] would be interpreted as two
-      // DISCRETE versions, not a continuous range.
-      pack.supported_formats = min === max ? min : { min_inclusive: min, max_inclusive: max }
+      pack.supported_formats = min === max ? min : [min, max]
     }
   } else if (state.style === 'new-style') {
     // ── New-style path ────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Service, Logger, FileNode, CheckerContext } from '@spyglassmc/core'
+import { Service, Logger, FileNode, CheckerContext, VanillaConfig } from '@spyglassmc/core'
 import { initialize as jeInitialize } from '@spyglassmc/java-edition'
 import { initialize as mcdocInitialize, runtime as mcdocRuntime } from '@spyglassmc/mcdoc'
 import type { McdocType } from '@spyglassmc/mcdoc'
@@ -187,10 +187,9 @@ export class SpyglassService {
       }))
     }
 
-    // Omit defaultConfig entirely — VanillaConfig (used when undefined)
-    // includes the correct lint, format, and env defaults. Passing a
-    // partial config replaces VanillaConfig wholesale, which drops the
-    // lint block and causes every lint/complete call to throw.
+    const targetVersion = (!hasMcmeta && gameVersion === 'Auto') ? '1.21' : gameVersion
+    const deps = Array.from(new Set([...dependencies, PACK_ROOT]))
+
     const service = new Service({
       logger,
       project: {
@@ -198,11 +197,15 @@ export class SpyglassService {
         externals,
         projectRoots: [PACK_ROOT],
         logger,
-        // jeInitialize alone never registers the mcdoc language, so the
-        // vanilla-mcdoc dependency's .mcdoc files are not bound and every
-        // JSON file's dispatcher lookup fails (checker falls back to `any`).
-        // mcdocInitialize must be listed explicitly.
         initializers: [jeInitialize, mcdocInitialize],
+        defaultConfig: {
+          ...VanillaConfig,
+          env: {
+            ...VanillaConfig.env,
+            gameVersion: targetVersion,
+            dependencies: deps,
+          },
+        },
       },
     })
 
@@ -278,19 +281,62 @@ export class SpyglassService {
 
   async getMarkers(path: string): Promise<IdeMarker[]> {
     await this.settled()
+    if (!this.service) return []
+    const uri = PACK_ROOT + path
+    try {
+      await this.queueParse(this.service.project.ensureClientManagedChecked(uri))
+      await this.settled()
+    } catch {
+      // ignore
+    }
     const file = this.getFile(path)
     if (!file) return []
-    const errors = FileNode.getErrors(file.node)
+    const rawNode = file.node as unknown as {
+      parserErrors?: any[]
+      binderErrors?: any[]
+      checkerErrors?: any[]
+      linterErrors?: any[]
+    }
+    const errors = [
+      ...(rawNode.parserErrors ?? []),
+      ...(rawNode.binderErrors ?? []),
+      ...(rawNode.checkerErrors ?? []),
+      ...(rawNode.linterErrors ?? []),
+    ]
     return errors.map(err => {
-      const start = file.doc.positionAt(err.range.start)
-      const end = file.doc.positionAt(err.range.end)
+      let startLineNumber = 1
+      let startColumn = 1
+      let endLineNumber = 1
+      let endColumn = 1
+
+      if (err.posRange?.start) {
+        startLineNumber = (err.posRange.start.line ?? 0) + 1
+        startColumn = (err.posRange.start.character ?? 0) + 1
+        endLineNumber = (err.posRange.end?.line ?? err.posRange.start.line ?? 0) + 1
+        endColumn = (err.posRange.end?.character ?? err.posRange.start.character ?? 0) + 1
+      } else if (err.range) {
+        if (typeof err.range.start === 'number') {
+          const start = file.doc.positionAt(err.range.start)
+          const end = file.doc.positionAt(err.range.end ?? err.range.start)
+          startLineNumber = start.line + 1
+          startColumn = start.character + 1
+          endLineNumber = end.line + 1
+          endColumn = end.character + 1
+        } else if (typeof err.range.start === 'object') {
+          startLineNumber = (err.range.start.line ?? 0) + 1
+          startColumn = (err.range.start.character ?? 0) + 1
+          endLineNumber = (err.range.end?.line ?? err.range.start.line ?? 0) + 1
+          endColumn = (err.range.end?.character ?? err.range.start.character ?? 0) + 1
+        }
+      }
+
       return {
         severity: severityName(err.severity),
-        message: err.message,
-        startLineNumber: start.line + 1,
-        startColumn: start.character + 1,
-        endLineNumber: end.line + 1,
-        endColumn: end.character + 1,
+        message: err.message ?? 'Unknown error',
+        startLineNumber,
+        startColumn,
+        endLineNumber,
+        endColumn,
       }
     })
   }
@@ -378,8 +424,8 @@ export class SpyglassService {
   }
 
   /** Open every file in the pack, wait for all parses to settle, then
-   *  collect markers from every file. Used by the "Analyze Datapack"
-   *  button which needs whole-pack diagnostics in one pass. */
+   *  collect markers from every file using a two-pass open and check.
+   *  Used by the "Analyze Datapack" button which needs whole-pack diagnostics in one pass. */
   async analyzeAll(
     files: Record<string, string>,
     onProgress?: (done: number, total: number) => void,
@@ -388,36 +434,91 @@ export class SpyglassService {
 
     const paths = Object.keys(files)
     const total = paths.length
-    // Fire off opens for every file — they chain through parseChain so
-    // they execute in order but we only await once at the end.
+    // Pass 1 — open every file
     let done = 0
     await Promise.all(
       paths.map((path) =>
         this.openFile(path, files[path]).then(() => {
           done++
-          onProgress?.(done, total)
+          onProgress?.(done, total * 2)
         }),
       ),
     )
     await this.settled()
 
+    // Pass 2 — check every file with ensureClientManagedChecked and collect all error types:
+    // parserErrors, binderErrors, checkerErrors, and linterErrors
     const results: { path: string; marker: IdeMarker }[] = []
+    const seen = new Set<string>()
+
     for (const path of paths) {
+      const uri = PACK_ROOT + path
+      try {
+        await this.service.project.ensureClientManagedChecked(uri)
+      } catch {
+        // Individual file failures should not abort the whole pack analysis
+      }
+      done++
+      onProgress?.(done, total * 2)
+
       const file = this.getFile(path)
       if (!file) continue
-      const errors = FileNode.getErrors(file.node)
-      for (const err of errors) {
-        const start = file.doc.positionAt(err.range.start)
-        const end = file.doc.positionAt(err.range.end)
+
+      const rawNode = file.node as unknown as {
+        parserErrors?: any[]
+        binderErrors?: any[]
+        checkerErrors?: any[]
+        linterErrors?: any[]
+      }
+      const allErrors = [
+        ...(rawNode.parserErrors ?? []),
+        ...(rawNode.binderErrors ?? []),
+        ...(rawNode.checkerErrors ?? []),
+        ...(rawNode.linterErrors ?? []),
+      ]
+
+      for (const err of allErrors) {
+        if (!err || typeof err !== 'object') continue
+        let startLineNumber = 1
+        let startColumn = 1
+        let endLineNumber = 1
+        let endColumn = 1
+
+        if (err.posRange?.start) {
+          startLineNumber = (err.posRange.start.line ?? 0) + 1
+          startColumn = (err.posRange.start.character ?? 0) + 1
+          endLineNumber = (err.posRange.end?.line ?? err.posRange.start.line ?? 0) + 1
+          endColumn = (err.posRange.end?.character ?? err.posRange.start.character ?? 0) + 1
+        } else if (err.range) {
+          if (typeof err.range.start === 'number') {
+            const start = file.doc.positionAt(err.range.start)
+            const end = file.doc.positionAt(err.range.end ?? err.range.start)
+            startLineNumber = start.line + 1
+            startColumn = start.character + 1
+            endLineNumber = end.line + 1
+            endColumn = end.character + 1
+          } else if (typeof err.range.start === 'object') {
+            startLineNumber = (err.range.start.line ?? 0) + 1
+            startColumn = (err.range.start.character ?? 0) + 1
+            endLineNumber = (err.range.end?.line ?? err.range.start.line ?? 0) + 1
+            endColumn = (err.range.end?.character ?? err.range.start.character ?? 0) + 1
+          }
+        }
+
+        const message = err.message ?? 'Unknown error'
+        const key = `${path}|${startLineNumber}|${startColumn}|${message}`
+        if (seen.has(key)) continue
+        seen.add(key)
+
         results.push({
           path,
           marker: {
             severity: severityName(err.severity),
-            message: err.message,
-            startLineNumber: start.line + 1,
-            startColumn: start.character + 1,
-            endLineNumber: end.line + 1,
-            endColumn: end.character + 1,
+            message,
+            startLineNumber,
+            startColumn,
+            endLineNumber,
+            endColumn,
           },
         })
       }

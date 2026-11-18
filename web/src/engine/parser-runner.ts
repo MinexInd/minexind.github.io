@@ -1,5 +1,6 @@
-import { Project, FileNode, Logger } from '@spyglassmc/core'
+import { Project, FileNode, Logger, VanillaConfig } from '@spyglassmc/core'
 import { initialize as jeInitialize } from '@spyglassmc/java-edition'
+import { initialize as mcdocInitialize } from '@spyglassmc/mcdoc'
 import type { CacheLike } from './browser-externals'
 import { createBrowserExternals } from './browser-externals'
 import { createIdbCache } from './idb-cache'
@@ -91,7 +92,11 @@ export function hasCrossFileReferences(files: Record<string, string>): boolean {
     if (path.startsWith('data/') && (
       path.endsWith('.mcfunction') ||
       path.includes('/loot_tables/') ||
-      path.includes('/advancements/')
+      path.includes('/loot_table/') ||
+      path.includes('/advancements/') ||
+      path.includes('/advancement/') ||
+      path.includes('/recipes/') ||
+      path.includes('/recipe/')
     )) {
       return true
     }
@@ -141,26 +146,23 @@ async function runParserForVersion(
   const externals = createBrowserExternals(spikeCache)
   const logger = Logger.noop()
 
-  // defaultConfig REPLACES VanillaConfig entirely, so we must include the
-  // full env.dependencies array and other required fields.
-  // Drop @vanilla-datapack when we don't need cross-file reference
-  // checking — this skips the expensive tarball fetch while still running
-  // mcdoc structural validation and command syntax checks.
+  const packUri = 'file:///pack/'
   const dependencies = needsVanillaData
-    ? ['@vanilla-datapack', '@vanilla-resourcepack', '@vanilla-mcdoc']
-    : ['@vanilla-resourcepack', '@vanilla-mcdoc']
+    ? [...VanillaConfig.env.dependencies, packUri]
+    : [...VanillaConfig.env.dependencies.filter(d => d !== '@vanilla-datapack'), packUri]
 
   const project = new Project({
     cacheRoot: 'file:///cache/',
     externals,
-    projectRoots: ['file:///pack/'],
+    projectRoots: [packUri],
     logger,
-    initializers: [jeInitialize],
+    initializers: [jeInitialize, mcdocInitialize],
     defaultConfig: {
+      ...VanillaConfig,
       env: {
+        ...VanillaConfig.env,
         dependencies,
-        exclude: [],
-        customResources: {},
+        gameVersion: targetVersion,
         feature: {
           codeActions: false, colors: false, completions: false,
           documentHighlighting: false, documentLinks: false,
@@ -168,11 +170,6 @@ async function runParserForVersion(
           inlayHint: false, semanticColoring: false, selectionRanges: false,
           signatures: false,
         },
-        gameVersion: targetVersion,
-        mcmetaSummaryOverrides: {},
-        permissionLevel: 2,
-        plugins: [],
-        enableMcdocCaching: false,
       },
     } as any,
   })
@@ -187,32 +184,84 @@ async function runParserForVersion(
     await project.init()
     await project.ready()
 
-    const issues: ParserIssue[] = []
+    // Pass 1: open every file
+    const opened: Array<{ path: string; uri: string }> = []
     for (const [path, content] of Object.entries(files)) {
-      const uri = `file:///pack/${path}`
       const lang = guessLanguage(path)
+      if (!lang) continue
+      const uri = `file:///pack/${path}`
+      try {
+        await project.onDidOpen(uri, lang, 1, content)
+        opened.push({ path, uri })
+      } catch {
+        // Individual file failures should not abort the whole pack analysis
+      }
+    }
 
-      await project.onDidOpen(uri, lang, 1, content)
+    // Pass 2: check every file using ensureClientManagedChecked and collect all error types:
+    // parserErrors, binderErrors, checkerErrors, and linterErrors
+    const issues: ParserIssue[] = []
+    const seen = new Set<string>()
 
-      const managed = project.getClientManaged(uri)
-      if (!managed) continue
+    const recordIssue = (filePath: string, err: any, doc?: any) => {
+      if (!err || typeof err !== 'object') return
+      let line = 1
+      if (err.posRange?.start?.line !== undefined) {
+        line = err.posRange.start.line + 1
+      } else if (err.range?.start !== undefined) {
+        if (typeof err.range.start === 'number' && doc) {
+          line = doc.positionAt(err.range.start).line + 1
+        } else if (typeof err.range.start === 'object' && err.range.start.line !== undefined) {
+          line = err.range.start.line + 1
+        }
+      }
+      const message = err.message ?? 'Unknown error'
+      const key = `${filePath}|${line}|${message}`
+      if (seen.has(key)) return
+      seen.add(key)
 
-      const { doc, node } = managed
-      // FileNode.getErrors covers checker/linter errors; parser errors are
-      // emitted earlier and live on the node directly. Collect both so the
-      // caller sees the full parse + check result set.
-      const errors = FileNode.getErrors(node)
-      const parserErrors = (node as any).parserErrors ?? []
-      const allErrors = [...parserErrors, ...errors]
-      for (const err of allErrors) {
-        const pos = doc.positionAt(err.range.start)
-        issues.push({
-          file: path,
-          line: pos.line + 1, // 1-indexed
-          message: err.message,
-          severity: SeverityNames[err.severity] ?? 'error',
-          source: err.source ?? 'parser',
-        })
+      issues.push({
+        file: filePath,
+        line,
+        message,
+        severity: SeverityNames[err.severity] ?? 'error',
+        source: err.source ?? 'parser',
+      })
+    }
+
+    project.on('documentErrored', ((e: { errors?: unknown[]; uri: string }) => {
+      if (!e?.errors || !Array.isArray(e.errors)) return
+      const filePath = e.uri.replace(/^file:\/\/\/pack\//, '').replace(/^file:\/\/pack\//, '')
+      const managed = project.getClientManaged(e.uri)
+      for (const err of e.errors) {
+        recordIssue(filePath, err, managed?.doc)
+      }
+    }) as any)
+
+    for (const { path, uri } of opened) {
+      try {
+        const res = await project.ensureClientManagedChecked(uri)
+        const managed = res ?? project.getClientManaged(uri)
+        if (!managed) continue
+
+        const { doc, node } = managed
+        const rawNode = node as unknown as {
+          parserErrors?: any[]
+          binderErrors?: any[]
+          checkerErrors?: any[]
+          linterErrors?: any[]
+        }
+        const allErrors = [
+          ...(rawNode.parserErrors ?? []),
+          ...(rawNode.binderErrors ?? []),
+          ...(rawNode.checkerErrors ?? []),
+          ...(rawNode.linterErrors ?? []),
+        ]
+        for (const err of allErrors) {
+          recordIssue(path, err, doc)
+        }
+      } catch {
+        // A single file failing to check should not abort the whole pack
       }
     }
 

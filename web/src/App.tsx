@@ -289,5 +289,5 @@ export default function App() {
     )
   }
 
-  return <HubPage onOpenDatapackEditor={openEditor} />
+  return <HubPage onOpenDatapackEditor={openEditor} versions={versions} />
 }

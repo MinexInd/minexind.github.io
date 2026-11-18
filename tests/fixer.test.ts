@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { McmetaVersion } from '../src/types.js'
@@ -31,7 +31,7 @@ vi.mock('../src/mcdoc-check.js', async importOriginal => {
   return { ...actual, getMcdocSymbols: vi.fn(async () => null) }
 })
 
-import { fixDatapack, fixResourcePack } from '../src/fixer.js'
+import { fixDatapack, fixResourcePack, getRegistryForPath, getRegistrySkipReason, restructurePath } from '../src/fixer.js'
 
 interface Fixture {
   dir: string
@@ -287,6 +287,149 @@ describe('backport 1.21.5 -> 1.21 (backward port rewrites)', () => {
       expect('supported_formats' in out.pack).toBe(false)
       const fn = readFileSync(join(f.out, 'data/demo/functions/backport.mcfunction'), 'utf-8')
       expect(fn).toBe('/give @p minecraft:diamond\n')
+    } finally {
+      cleanup(f)
+    }
+  })
+})
+
+describe('getRegistryForPath directory detection (singular and plural)', () => {
+  it('recognizes both singular and plural directories for all core registries', () => {
+    expect(getRegistryForPath('data/minecraft/functions/tick.mcfunction')).toBe('functions')
+    expect(getRegistryForPath('data/minecraft/function/tick.mcfunction')).toBe('function')
+    expect(getRegistryForPath('data/minecraft/loot_tables/chests/simple.json')).toBe('loot_tables')
+    expect(getRegistryForPath('data/minecraft/loot_table/chests/simple.json')).toBe('loot_table')
+    expect(getRegistryForPath('data/minecraft/recipes/craft.json')).toBe('recipes')
+    expect(getRegistryForPath('data/minecraft/recipe/craft.json')).toBe('recipe')
+    expect(getRegistryForPath('data/minecraft/advancements/story/root.json')).toBe('advancements')
+    expect(getRegistryForPath('data/minecraft/advancement/story/root.json')).toBe('advancement')
+    expect(getRegistryForPath('data/minecraft/predicates/test.json')).toBe('predicates')
+    expect(getRegistryForPath('data/minecraft/predicate/test.json')).toBe('predicate')
+    expect(getRegistryForPath('data/minecraft/item_modifiers/test.json')).toBe('item_modifiers')
+    expect(getRegistryForPath('data/minecraft/item_modifier/test.json')).toBe('item_modifier')
+    expect(getRegistryForPath('data/minecraft/structures/tower.nbt')).toBe('structures')
+    expect(getRegistryForPath('data/minecraft/structure/tower.nbt')).toBe('structure')
+  })
+
+  it('recognizes tags and worldgen subregistries', () => {
+    expect(getRegistryForPath('data/minecraft/tags/function/tick.json')).toBe('tags/function')
+    expect(getRegistryForPath('data/minecraft/tags/functions/tick.json')).toBe('tags/functions')
+    expect(getRegistryForPath('data/minecraft/tags/blocks/dirt.json')).toBe('tags/blocks')
+    expect(getRegistryForPath('data/minecraft/tags/block/dirt.json')).toBe('tags/block')
+    expect(getRegistryForPath('data/minecraft/worldgen/biome/plains.json')).toBe('worldgen/biome')
+    expect(getRegistryForPath('data/minecraft/dialog/intro.json')).toBe('dialog')
+  })
+
+  it('returns null for non-registry paths', () => {
+    expect(getRegistryForPath('pack.mcmeta')).toBeNull()
+    expect(getRegistryForPath('assets/minecraft/textures/block/stone.png')).toBeNull()
+    expect(getRegistryForPath('data/demo/unknown_folder/file.json')).toBeNull()
+  })
+
+  it('getRegistrySkipReason checks version requirements for both singular and plural paths', () => {
+    // predicates requires 1.15+ in PORT_RULES
+    const skipPlural = getRegistrySkipReason('data/demo/predicates/test.json', '1.14')
+    expect(skipPlural).not.toBeNull()
+    expect(skipPlural?.registry).toBe('predicates')
+
+    const skipSingular = getRegistrySkipReason('data/demo/predicate/test.json', '1.14')
+    expect(skipSingular).not.toBeNull()
+    expect(skipSingular?.registry).toBe('predicate')
+
+    // At 1.15+, predicate is not skipped
+    expect(getRegistrySkipReason('data/demo/predicate/test.json', '1.15')).toBeNull()
+  })
+})
+
+describe('restructurePath across 1.21 boundary', () => {
+  it('renames plural directories to singular when porting forward across 1.21', () => {
+    expect(restructurePath('data/demo/functions/main.mcfunction', '1.20.4', '1.21.4')).toBe('data/demo/function/main.mcfunction')
+    expect(restructurePath('data/demo/loot_tables/chests/dungeon.json', '1.20.4', '1.21.4')).toBe('data/demo/loot_table/chests/dungeon.json')
+    expect(restructurePath('data/demo/recipes/sword.json', '1.20.4', '1.21.4')).toBe('data/demo/recipe/sword.json')
+    expect(restructurePath('data/demo/advancements/root.json', '1.20.4', '1.21.4')).toBe('data/demo/advancement/root.json')
+    expect(restructurePath('data/demo/predicates/check.json', '1.20.4', '1.21.4')).toBe('data/demo/predicate/check.json')
+    expect(restructurePath('data/demo/item_modifiers/damage.json', '1.20.4', '1.21.4')).toBe('data/demo/item_modifier/damage.json')
+    expect(restructurePath('data/demo/structures/house.nbt', '1.20.4', '1.21.4')).toBe('data/demo/structure/house.nbt')
+    expect(restructurePath('data/demo/tags/functions/tick.json', '1.20.4', '1.21.4')).toBe('data/demo/tags/function/tick.json')
+    expect(restructurePath('data/demo/tags/blocks/stone.json', '1.20.4', '1.21.4')).toBe('data/demo/tags/block/stone.json')
+  })
+
+  it('renames singular directories to plural when porting backward across 1.21', () => {
+    expect(restructurePath('data/demo/function/main.mcfunction', '1.21.4', '1.20.4')).toBe('data/demo/functions/main.mcfunction')
+    expect(restructurePath('data/demo/loot_table/chests/dungeon.json', '1.21.4', '1.20.4')).toBe('data/demo/loot_tables/chests/dungeon.json')
+    expect(restructurePath('data/demo/recipe/sword.json', '1.21.4', '1.20.4')).toBe('data/demo/recipes/sword.json')
+    expect(restructurePath('data/demo/advancement/root.json', '1.21.4', '1.20.4')).toBe('data/demo/advancements/root.json')
+    expect(restructurePath('data/demo/predicate/check.json', '1.21.4', '1.20.4')).toBe('data/demo/predicates/check.json')
+    expect(restructurePath('data/demo/item_modifier/damage.json', '1.21.4', '1.20.4')).toBe('data/demo/item_modifiers/damage.json')
+    expect(restructurePath('data/demo/structure/house.nbt', '1.21.4', '1.20.4')).toBe('data/demo/structures/house.nbt')
+    expect(restructurePath('data/demo/tags/function/tick.json', '1.21.4', '1.20.4')).toBe('data/demo/tags/functions/tick.json')
+    expect(restructurePath('data/demo/tags/block/stone.json', '1.21.4', '1.20.4')).toBe('data/demo/tags/blocks/stone.json')
+  })
+
+  it('leaves paths unchanged when not crossing the 1.21 boundary', () => {
+    // 1.21.5 -> 1.21 (both >= 1.21)
+    expect(restructurePath('data/demo/functions/main.mcfunction', '1.21.5', '1.21')).toBe('data/demo/functions/main.mcfunction')
+    expect(restructurePath('data/demo/function/main.mcfunction', '1.21.5', '1.21')).toBe('data/demo/function/main.mcfunction')
+    // 1.20.4 -> 1.20.5 (both < 1.21)
+    expect(restructurePath('data/demo/functions/main.mcfunction', '1.20.4', '1.20.5')).toBe('data/demo/functions/main.mcfunction')
+  })
+})
+
+describe('fixDatapack restructuring across 1.21 boundary (end-to-end)', () => {
+  it('restructures 1.20.4 plural pack to 1.21.4 singular pack without file corruption', async () => {
+    const f = makePack(
+      { pack: { pack_format: 41, description: '1.20.4 pack' } },
+      {
+        'data/demo/functions/main.mcfunction': 'say hello\n',
+        'data/demo/loot_tables/chests/dungeon.json': '{"pools":[]}\n',
+        'data/demo/structures/house.nbt': 'BINARY_NBT_MOCK_DATA',
+      },
+    )
+    try {
+      const { summary, results } = await fixDatapack({ datapackDir: f.dir, outputDir: f.out, targetVersion: '1.21.4' })
+      expect(summary.errors).toEqual([])
+
+      // Functions restructured to singular
+      expect(existsSync(join(f.out, 'data/demo/function/main.mcfunction'))).toBe(true)
+      expect(existsSync(join(f.out, 'data/demo/functions/main.mcfunction'))).toBe(false)
+      const fn = readFileSync(join(f.out, 'data/demo/function/main.mcfunction'), 'utf-8')
+      expect(fn).toBe('say hello\n')
+
+      // Loot tables restructured to singular
+      expect(existsSync(join(f.out, 'data/demo/loot_table/chests/dungeon.json'))).toBe(true)
+      expect(existsSync(join(f.out, 'data/demo/loot_tables/chests/dungeon.json'))).toBe(false)
+
+      // Structures non-json file preserved and restructured to singular
+      expect(existsSync(join(f.out, 'data/demo/structure/house.nbt'))).toBe(true)
+      expect(readFileSync(join(f.out, 'data/demo/structure/house.nbt'), 'utf-8')).toBe('BINARY_NBT_MOCK_DATA')
+
+      // pack.mcmeta format updated
+      const mcmeta = JSON.parse(readFileSync(join(f.out, 'pack.mcmeta'), 'utf-8'))
+      expect(mcmeta.pack.pack_format).toBe(71)
+    } finally {
+      cleanup(f)
+    }
+  })
+
+  it('restructures 1.21.4 singular pack to 1.20.4 plural pack on backport', async () => {
+    const f = makePack(
+      { pack: { pack_format: 71, description: '1.21.4 pack' } },
+      {
+        'data/demo/function/main.mcfunction': 'say hello\n',
+        'data/demo/loot_table/chests/dungeon.json': '{"pools":[]}\n',
+      },
+    )
+    try {
+      const { summary } = await fixDatapack({ datapackDir: f.dir, outputDir: f.out, targetVersion: '1.20.4' })
+      expect(summary.errors).toEqual([])
+
+      // Functions restructured to plural
+      expect(existsSync(join(f.out, 'data/demo/functions/main.mcfunction'))).toBe(true)
+      expect(existsSync(join(f.out, 'data/demo/function/main.mcfunction'))).toBe(false)
+
+      // Loot tables restructured to plural
+      expect(existsSync(join(f.out, 'data/demo/loot_tables/chests/dungeon.json'))).toBe(true)
+      expect(existsSync(join(f.out, 'data/demo/loot_table/chests/dungeon.json'))).toBe(false)
     } finally {
       cleanup(f)
     }

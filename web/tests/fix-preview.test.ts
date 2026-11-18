@@ -1,7 +1,22 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { toFixPreviewV2, type FixPreviewLike, type FixPreviewV2 } from '../../src/fix-preview'
 import { applyFixPreview } from '../../src/fix-apply'
 import { computeLineDiff } from '../src/ide/fix-diff'
+import { getRegistryForPath, getRegistrySkipReason, restructurePath, fixDatapack, fixResourcePack } from '../src/engine/fixer'
+
+vi.mock('../src/engine/api', () => ({
+  fetchVersions: vi.fn(async () => [
+    { id: '1.20.4', name: '1.20.4', type: 'release', stable: true, data_pack_version: 41, resource_pack_version: 34, data_version: 3826 },
+    { id: '1.20.5', name: '1.20.5', type: 'release', stable: true, data_pack_version: 61, resource_pack_version: 40, data_version: 3955 },
+    { id: '1.21', name: '1.21', type: 'release', stable: true, data_pack_version: 68, resource_pack_version: 45, data_version: 4525 },
+    { id: '1.21.4', name: '1.21.4', type: 'release', stable: true, data_pack_version: 71, resource_pack_version: 47, data_version: 4620 },
+  ]),
+}))
+
+vi.mock('../src/engine/mcdoc-check', async importOriginal => {
+  const actual = await importOriginal<typeof import('../src/engine/mcdoc-check')>()
+  return { ...actual, getMcdocSymbols: vi.fn(async () => null) }
+})
 
 describe('toFixPreviewV2', () => {
   it('maps legacy FixPreview to FixPreviewV2 with before/after, reason, confidence, and skipped files', () => {
@@ -257,5 +272,136 @@ describe('computeLineDiff', () => {
     expect(diff.additions).toBe(0)
     expect(diff.deletions).toBe(0)
     expect(diff.rows).toHaveLength(0)
+  })
+})
+
+describe('getRegistryForPath and directory detection in web fixer', () => {
+  it('recognizes both singular (1.21+) and plural (<1.21) directories', () => {
+    expect(getRegistryForPath('data/minecraft/functions/tick.mcfunction')).toBe('functions')
+    expect(getRegistryForPath('data/minecraft/function/tick.mcfunction')).toBe('function')
+    expect(getRegistryForPath('data/minecraft/loot_tables/chests/simple.json')).toBe('loot_tables')
+    expect(getRegistryForPath('data/minecraft/loot_table/chests/simple.json')).toBe('loot_table')
+    expect(getRegistryForPath('data/minecraft/recipes/craft.json')).toBe('recipes')
+    expect(getRegistryForPath('data/minecraft/recipe/craft.json')).toBe('recipe')
+    expect(getRegistryForPath('data/minecraft/advancements/story/root.json')).toBe('advancements')
+    expect(getRegistryForPath('data/minecraft/advancement/story/root.json')).toBe('advancement')
+    expect(getRegistryForPath('data/minecraft/predicates/test.json')).toBe('predicates')
+    expect(getRegistryForPath('data/minecraft/predicate/test.json')).toBe('predicate')
+    expect(getRegistryForPath('data/minecraft/item_modifiers/test.json')).toBe('item_modifiers')
+    expect(getRegistryForPath('data/minecraft/item_modifier/test.json')).toBe('item_modifier')
+    expect(getRegistryForPath('data/minecraft/structures/tower.nbt')).toBe('structures')
+    expect(getRegistryForPath('data/minecraft/structure/tower.nbt')).toBe('structure')
+    expect(getRegistryForPath('data/minecraft/tags/function/tick.json')).toBe('tags/function')
+    expect(getRegistryForPath('data/minecraft/tags/functions/tick.json')).toBe('tags/functions')
+  })
+
+  it('checks registry skip reasons across singular and plural names', () => {
+    expect(getRegistrySkipReason('data/demo/predicates/test.json', '1.14')).not.toBeNull()
+    expect(getRegistrySkipReason('data/demo/predicate/test.json', '1.14')).not.toBeNull()
+    expect(getRegistrySkipReason('data/demo/predicate/test.json', '1.20')).toBeNull()
+  })
+})
+
+describe('restructurePath in web fixer', () => {
+  it('correctly maps plural to singular when porting forward across 1.21', () => {
+    expect(restructurePath('data/demo/functions/main.mcfunction', '1.20.4', '1.21.4')).toBe('data/demo/function/main.mcfunction')
+    expect(restructurePath('data/demo/loot_tables/chest.json', '1.20.4', '1.21.4')).toBe('data/demo/loot_table/chest.json')
+    expect(restructurePath('data/demo/recipes/recipe.json', '1.20.4', '1.21.4')).toBe('data/demo/recipe/recipe.json')
+    expect(restructurePath('data/demo/advancements/adv.json', '1.20.4', '1.21.4')).toBe('data/demo/advancement/adv.json')
+    expect(restructurePath('data/demo/predicates/pred.json', '1.20.4', '1.21.4')).toBe('data/demo/predicate/pred.json')
+    expect(restructurePath('data/demo/item_modifiers/mod.json', '1.20.4', '1.21.4')).toBe('data/demo/item_modifier/mod.json')
+  })
+
+  it('correctly maps singular to plural when porting backward across 1.21', () => {
+    expect(restructurePath('data/demo/function/main.mcfunction', '1.21.4', '1.20.4')).toBe('data/demo/functions/main.mcfunction')
+    expect(restructurePath('data/demo/loot_table/chest.json', '1.21.4', '1.20.4')).toBe('data/demo/loot_tables/chest.json')
+    expect(restructurePath('data/demo/recipe/recipe.json', '1.21.4', '1.20.4')).toBe('data/demo/recipes/recipe.json')
+    expect(restructurePath('data/demo/advancement/adv.json', '1.21.4', '1.20.4')).toBe('data/demo/advancements/adv.json')
+    expect(restructurePath('data/demo/predicate/pred.json', '1.21.4', '1.20.4')).toBe('data/demo/predicates/pred.json')
+    expect(restructurePath('data/demo/item_modifier/mod.json', '1.21.4', '1.20.4')).toBe('data/demo/item_modifiers/mod.json')
+  })
+})
+
+describe('fixDatapack and fixResourcePack directory restructuring and safety', () => {
+  it('restructures plural files to singular and preserves all pack files without corruption', async () => {
+    const files: Record<string, string> = {
+      'pack.mcmeta': JSON.stringify({ pack: { pack_format: 41, description: 'test' } }),
+      'data/demo/functions/main.mcfunction': 'say hello\n',
+      'data/demo/loot_tables/chest.json': '{"pools":[]}\n',
+      'data/demo/structures/tower.nbt': 'BINARY_DATA',
+      'pack.png': 'PNG_DATA',
+    }
+
+    const { files: output, results, summary, plan } = await fixDatapack({
+      files,
+      targetVersion: '1.21.4',
+    })
+
+    expect(summary.errors).toEqual([])
+    expect(plan.direction).toBe('forward')
+
+    // Plural directories restructured to singular
+    expect('data/demo/function/main.mcfunction' in output).toBe(true)
+    expect('data/demo/functions/main.mcfunction' in output).toBe(false)
+    expect(output['data/demo/function/main.mcfunction']).toBe('say hello\n')
+
+    expect('data/demo/loot_table/chest.json' in output).toBe(true)
+    expect('data/demo/loot_tables/chest.json' in output).toBe(false)
+
+    // Non-JSON / non-mcfunction files in data/ preserved and restructured
+    expect('data/demo/structure/tower.nbt' in output).toBe(true)
+    expect(output['data/demo/structure/tower.nbt']).toBe('BINARY_DATA')
+
+    // Root files preserved
+    expect(output['pack.png']).toBe('PNG_DATA')
+
+    // pack.mcmeta format updated
+    const pm = JSON.parse(output['pack.mcmeta'])
+    expect(pm.pack.pack_format).toBe(71)
+  })
+
+  it('restructures singular files to plural on backport', async () => {
+    const files: Record<string, string> = {
+      'pack.mcmeta': JSON.stringify({ pack: { pack_format: 71, description: '1.21.4 pack' } }),
+      'data/demo/function/main.mcfunction': 'say hello\n',
+      'data/demo/loot_table/chest.json': '{"pools":[]}\n',
+    }
+
+    const { files: output, summary, plan } = await fixDatapack({
+      files,
+      targetVersion: '1.20.4',
+    })
+
+    expect(summary.errors).toEqual([])
+    expect(plan.direction).toBe('backward')
+
+    expect('data/demo/functions/main.mcfunction' in output).toBe(true)
+    expect('data/demo/function/main.mcfunction' in output).toBe(false)
+    expect('data/demo/loot_tables/chest.json' in output).toBe(true)
+    expect('data/demo/loot_table/chest.json' in output).toBe(false)
+  })
+
+  it('fixResourcePack generates accurate plan and updates pack format', async () => {
+    const files: Record<string, string> = {
+      'pack.mcmeta': JSON.stringify({ pack: { pack_format: 34, description: 'rp' } }),
+      'assets/demo/models/item/sword.json': '{"parent":"item/handheld"}\n',
+      'assets/demo/textures/item/sword.png': 'TEXTURE',
+    }
+
+    const { files: output, summary, plan } = await fixResourcePack({
+      files,
+      targetVersion: '1.21.4',
+    })
+
+    expect(summary.errors).toEqual([])
+    expect(plan.targetVersion).toBe('1.21.4')
+    expect(plan.direction).toBe('forward')
+    expect(plan.sourceVersion).toBe('1.20.4')
+
+    // Non-JSON asset preserved
+    expect(output['assets/demo/textures/item/sword.png']).toBe('TEXTURE')
+    // pack.mcmeta updated
+    const pm = JSON.parse(output['pack.mcmeta'])
+    expect(pm.pack.pack_format).toBe(47)
   })
 })

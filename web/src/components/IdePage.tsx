@@ -3069,31 +3069,29 @@ const handleContextMenuAction = useCallback((action: string) => {
       )}
 
       {/* VSCode-like overlays */}
-      <ContextMenu
-        x={contextMenu?.x ?? 0}
-        y={contextMenu?.y ?? 0}
-        onClose={() => setContextMenu(null)}
-        onAction={handleContextMenuAction}
-        items={
-          contextMenu
-            ? [
-                { label: 'Open', action: 'open', shortcut: 'Enter' },
-                { label: 'Rename', action: 'rename', shortcut: 'F2' },
-                { label: 'Delete', action: 'delete', shortcut: 'Del' },
-                contextMenu.kind === 'folder' || contextMenu.kind === 'empty'
-                  ? { label: 'New File', action: 'newFile', shortcut: 'N' }
-                  : null,
-                contextMenu.kind === 'folder' || contextMenu.kind === 'empty'
-                  ? { label: 'New Folder', action: 'newFolder', shortcut: '⇧N' }
-                  : null,
-                contextMenu.kind === 'file'
-                  ? { label: 'Duplicate', action: 'duplicate', shortcut: 'Ctrl+D' }
-                  : null,
-                { label: 'Copy Path', action: 'copyPath', shortcut: 'Ctrl+Shift+C' },
-              ].filter(Boolean) as { label: string; action: string; shortcut?: string }[]
-            : []
-        }
-      />
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onAction={handleContextMenuAction}
+          items={[
+            { label: 'Open', action: 'open', shortcut: 'Enter' },
+            { label: 'Rename', action: 'rename', shortcut: 'F2' },
+            { label: 'Delete', action: 'delete', shortcut: 'Del' },
+            contextMenu.kind === 'folder' || contextMenu.kind === 'empty'
+              ? { label: 'New File', action: 'newFile', shortcut: 'N' }
+              : null,
+            contextMenu.kind === 'folder' || contextMenu.kind === 'empty'
+              ? { label: 'New Folder', action: 'newFolder', shortcut: '⇧N' }
+              : null,
+            contextMenu.kind === 'file'
+              ? { label: 'Duplicate', action: 'duplicate', shortcut: 'Ctrl+D' }
+              : null,
+            { label: 'Copy Path', action: 'copyPath', shortcut: 'Ctrl+Shift+C' },
+          ].filter(Boolean) as { label: string; action: string; shortcut?: string }[]}
+        />
+      )}
       <CommandPalette
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}

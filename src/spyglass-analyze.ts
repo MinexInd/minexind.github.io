@@ -13,7 +13,7 @@
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { TextDocument } from 'vscode-languageserver-textdocument'
-import { Service, Project, FileNode } from '@spyglassmc/core'
+import { Service, Project, FileNode, VanillaConfig } from '@spyglassmc/core'
 import { initialize as jeInitialize } from '@spyglassmc/java-edition'
 import { initialize as mcdocInitialize } from '@spyglassmc/mcdoc'
 import { getVanillaDatapack, getVanillaMcdoc } from '@spyglassmc/java-edition/lib/dependency/index.js'
@@ -98,11 +98,23 @@ function toSeverity(severity: number): SpyglassDiagnostic['severity'] {
   return 'info'
 }
 
-function uriFromPath(p: string): string {
+function toUri(p: string): string {
   const abs = path.resolve(p).replace(/\\/g, '/')
-  // Windows drive letters: "C:/..." → "file://C:/.../"
-  if (/^[A-Za-z]:/.test(abs)) return 'file://' + abs + '/'
-  return 'file://' + abs + '/'
+  // Windows: "D:/x" must become "file:///D:/x". The old "file://D:/x" form put
+  // the drive letter in the host position.
+  if (/^[A-Za-z]:/.test(abs)) return 'file:///' + abs
+  return 'file://' + abs
+}
+
+/** URI for a single file. No trailing slash — UriStore treats a trailing slash as a directory. */
+function uriFromPath(p: string): string {
+  return toUri(p)
+}
+
+/** URI for a directory root. Spyglass requires the trailing slash here. */
+function dirUri(p: string): string {
+  const uri = toUri(p)
+  return uri.endsWith('/') ? uri : uri + '/'
 }
 
 function pathFromUri(uri: string): string {
@@ -167,7 +179,7 @@ export async function analyzePackWithSpyglass(
 ): Promise<SpyglassAnalysisResult> {
   const projectLogger = getLogger()
   const absPackDir = path.resolve(packDir)
-  const packUri = uriFromPath(absPackDir)
+  const packUri = dirUri(absPackDir)
 
   // Reuse cached project for this (dir, version) pair
   const key = cacheKeyOf(absPackDir, version)
@@ -176,7 +188,7 @@ export async function analyzePackWithSpyglass(
     const externals = getNodeJsExternals()
     const cacheRoot = path.join(process.cwd(), '.spyglass-cache')
     fs.mkdirSync(cacheRoot, { recursive: true })
-    const cacheRootUri = uriFromPath(cacheRoot)
+    const cacheRootUri = dirUri(cacheRoot)
 
     const logger = createForwardingLogger(projectLogger)
 
@@ -205,6 +217,23 @@ export async function analyzePackWithSpyglass(
       projectRoots: [packUri],
       logger,
       initializers: [jeInitialize, mcdocInitialize],
+      // Spyglass only enumerates `config.env.dependencies` plus whatever a
+      // FileWatcher reports. With no watcher, `projectRoots` are never scanned and
+      // the pack's own files stay invisible, so every cross-file reference looks
+      // undeclared. Listing the pack as a directory dependency makes Spyglass
+      // index it exactly like the VS Code extension does.
+      defaultConfig: {
+        ...VanillaConfig,
+        env: {
+          ...VanillaConfig.env,
+          // Without this, `resolveConfiguredVersion` never sees the requested
+          // version: the datapack dependency and every mcdoc `since`/`until`
+          // annotation fall back to the latest release, which is why old-version
+          // packs reported schemas from newer versions.
+          gameVersion: version,
+          dependencies: [...VanillaConfig.env.dependencies, packUri],
+        },
+      },
     }
     if (vanillaDep) {
       ;(projectOpts as Record<string, unknown>).dependencies = {
@@ -258,62 +287,78 @@ export async function analyzePackWithSpyglass(
   }
   project.on('documentErrored', onError as (e: unknown) => void)
 
-  // Open each file so Spyglass parses/binds/checks it.
-  // ensureClientManagedChecked forces the bind+check pipeline so errors
-  // are emitted before we read the tracked-files list.
+  // Pass 2 — open every file, then check every file. Opening and checking in the
+  // same iteration re-checks earlier files against a symbol table that is still
+  // missing the later ones.
+  const opened: string[] = []
   for (const fp of files) {
-    const ext = path.extname(fp).toLowerCase()
-    const lang = guessLanguage(ext)
+    const lang = guessLanguage(path.extname(fp).toLowerCase())
     if (!lang) continue
-    const content = fs.readFileSync(fp, 'utf-8')
     const uri = uriFromPath(fp)
     try {
-      await project.onDidOpen(uri, lang, 1, content)
-      await project.ensureClientManagedChecked(uri)
+      await project.onDidOpen(uri, lang, 1, fs.readFileSync(fp, 'utf-8'))
+      opened.push(uri)
     } catch {
       // Individual file failures should not abort the whole pack analysis
     }
   }
 
-  // Also pull errors from client-managed docs (catches errors emitted
-  // outside the event or from files opened before the listener).
-  for (const trackedUri of project.getTrackedFiles()) {
-    const docNode = project.getClientManaged(trackedUri)
-    if (!docNode?.node) continue
-    const node = docNode.node as unknown as {
-      parserErrors?: unknown[]
-      binderErrors?: unknown[]
-      checkerErrors?: unknown[]
-      linterErrors?: unknown[]
+  // Collect straight off the node we just checked. Looking files back up by URI
+  // from `getTrackedFiles()` silently misses them: that list comes from the
+  // dependency lister, which normalises URIs differently to `uriFromPath`, so
+  // `getClientManaged(trackedUri)` returned undefined and every JSON diagnostic
+  // was dropped.
+  const seen = new Set<string>()
+  const record = (uri: string, err: unknown) => {
+    if (!err || typeof err !== 'object') return
+    const le = err as {
+      severity?: number
+      message?: string
+      range?: { start?: { line?: number; character?: number }; end?: { line?: number; character?: number } }
+      source?: string
+      code?: string
     }
-    const errors = [
-      ...(node.parserErrors ?? []),
-      ...(node.binderErrors ?? []),
-      ...(node.checkerErrors ?? []),
-      ...(node.linterErrors ?? []),
-    ]
-    for (const err of errors) {
-      if (!err || typeof err !== 'object') continue
-      const le = err as {
-        severity?: number
-        message?: string
-        range?: { start?: { line?: number; character?: number }; end?: { line?: number; character?: number } }
-        source?: string
-        code?: string
+    const r = le.range || {}
+    const line = (r.start?.line ?? 0) + 1
+    const column = r.start?.character ?? 0
+    const message = le.message ?? 'Unknown error'
+    const key = `${uri}|${line}|${column}|${message}`
+    if (seen.has(key)) return
+    seen.add(key)
+    diagnostics.push({
+      file: pathFromUri(uri),
+      uri,
+      line,
+      column,
+      endLine: (r.end?.line ?? 0) + 1,
+      endColumn: r.end?.character ?? 0,
+      severity: toSeverity(le.severity ?? 3),
+      message,
+      source: le.source,
+      code: le.code,
+    })
+  }
+
+  for (const uri of opened) {
+    try {
+      const res = await project.ensureClientManagedChecked(uri)
+      const node = res?.node as unknown as {
+        parserErrors?: unknown[]
+        binderErrors?: unknown[]
+        checkerErrors?: unknown[]
+        linterErrors?: unknown[]
+      } | undefined
+      if (!node) continue
+      for (const err of [
+        ...(node.parserErrors ?? []),
+        ...(node.binderErrors ?? []),
+        ...(node.checkerErrors ?? []),
+        ...(node.linterErrors ?? []),
+      ]) {
+        record(uri, err)
       }
-      const r = le.range || {}
-      diagnostics.push({
-        file: trackedUri.replace('file://', '').replace(/\/$/, ''),
-        uri: trackedUri,
-        line: (r.start?.line ?? 0) + 1,
-        column: r.start?.character ?? 0,
-        endLine: (r.end?.line ?? 0) + 1,
-        endColumn: r.end?.character ?? 0,
-        severity: toSeverity(le.severity ?? 3),
-        message: le.message ?? 'Unknown error',
-        source: le.source,
-        code: le.code,
-      })
+    } catch {
+      // A single file failing to check should not abort the whole pack
     }
   }
 

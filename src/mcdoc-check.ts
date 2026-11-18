@@ -640,6 +640,9 @@ function resolveStruct(ref: string, table: SymbolTable): StructDef | null {
   if (s) return s
   const alias = table.typeAliases.get(ref)
   if (alias && alias.t === 'ref') return resolveStruct(alias.name, table)
+  if (ref.includes('advancement_display')) {
+    return table.structs.get('AdvancementDisplay') ?? table.structs.get('RootAdvancementDisplay') ?? null
+  }
   return null
 }
 
@@ -811,7 +814,7 @@ function validateValue(
         return
       }
     }
-    const sdef = table.structs.get(type.name)
+    const sdef = resolveStruct(type.name, table)
     if (sdef && val && typeof val === 'object' && !Array.isArray(val)) {
       validateObject(val as Record<string, unknown>, sdef, version, path, issues, table, depth)
     }
@@ -1334,7 +1337,7 @@ function fixValueInPlace(
       fixValueInPlace(val, alias, version, path, table, removed, depth + 1)
       return
     }
-    const sdef = table.structs.get(type.name)
+    const sdef = resolveStruct(type.name, table)
     if (sdef && typeof val === 'object' && !Array.isArray(val)) {
       fixObjectInPlace(val as Record<string, unknown>, sdef, version, path, table, removed, depth)
     }
